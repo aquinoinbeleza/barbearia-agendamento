@@ -102,6 +102,9 @@ export default function App() {
   const [submitting,  setSubmitting]  = useState(false)
   const [verificando, setVerificando] = useState(false)
   const [error,       setError]       = useState("")
+  // LGPD
+  const [concordou,     setConcordou]     = useState(false)
+  const [politicaAberta, setPoliticaAberta] = useState(false)
   // Admin
   const [adminAuth,   setAdminAuth]   = useState(false)
   const [adminPass,   setAdminPass]   = useState("")
@@ -435,9 +438,10 @@ export default function App() {
     const nomeOk  = cliente.nome.trim().length >= 3
     const nascOk  = cliente.nascimento.replace(/\D/g,"").length === 8
     const idade   = calcularIdade(cliente.nascimento)
-    const tudo    = nomeOk && nascOk
+    const tudo    = nomeOk && nascOk && concordou
     return (
       <div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",alignItems:"center"}}>
+        <PoliticaModal aberta={politicaAberta} onFechar={()=>setPoliticaAberta(false)}/>
         <ProgHeader step={1}/>
         <main style={{width:"100%",maxWidth:460,padding:"36px 24px 64px"}}>
           <button className="back-btn" onClick={()=>setStep("phone")} style={{color:C.muted,fontSize:14,marginBottom:24,display:"flex",alignItems:"center",gap:6,transition:"color .15s"}}>
@@ -477,6 +481,20 @@ export default function App() {
                 )}
               </div>
               <p style={{color:C.muted,fontSize:11,marginTop:6}}>Formato: DD/MM/AAAA</p>
+            </div>
+
+            {/* Consentimento LGPD */}
+            <div style={{display:"flex",alignItems:"flex-start",gap:12,padding:"16px",background:C.surface,borderRadius:8,border:`1px solid ${C.border}`}}>
+              <input type="checkbox" id="lgpd" checked={concordou} onChange={e=>setConcordou(e.target.checked)}
+                style={{marginTop:3,accentColor:C.gold,width:16,height:16,cursor:"pointer",flexShrink:0}}/>
+              <label htmlFor="lgpd" style={{fontSize:12,color:C.sub,lineHeight:1.6,cursor:"pointer"}}>
+                Li e concordo com a{" "}
+                <button onClick={()=>setPoliticaAberta(true)}
+                  style={{color:C.gold,textDecoration:"underline",fontSize:12,cursor:"pointer",background:"none",border:"none",padding:0,fontFamily:"inherit"}}>
+                  Política de Privacidade
+                </button>
+                . Meus dados serão usados exclusivamente para agendamentos e comunicação sobre atendimentos.
+              </label>
             </div>
 
             <button className="gold-btn" onClick={()=>{ if(tudo) setStep("service") }} disabled={!tudo}
@@ -706,6 +724,68 @@ function CampoNasc({ value, onChange }) {
       placeholder="DD/MM/AAAA" maxLength={10}
       onFocus={()=>setFocus(true)} onBlur={()=>setFocus(false)}
       style={{width:"100%",background:C.card,border:`1px solid ${focus?C.gold:C.border}`,borderRadius:8,padding:"14px 16px",fontSize:16,color:C.text,transition:"border-color .2s"}}/>
+  )
+}
+export function PoliticaModal({ aberta, onFechar }) {
+  if (!aberta) return null
+  return (
+    <div onClick={onFechar} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.85)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#111",border:`1px solid #2a2a2a`,borderRadius:12,maxWidth:540,width:"100%",maxHeight:"85vh",overflow:"auto",padding:"32px 28px",position:"relative"}}>
+
+        <button onClick={onFechar} style={{position:"absolute",top:16,right:16,color:"#666",fontSize:20,lineHeight:1}}>✕</button>
+
+        <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:24,fontWeight:600,color:"#ede9e3",marginBottom:4}}>
+          Política de Privacidade
+        </div>
+        <div style={{fontSize:12,color:"#555",marginBottom:24}}>AQUINO | Barbearia & Estética — CNPJ 34.828.065/0001-41</div>
+
+        {[
+          {
+            titulo: "1. Dados Coletados",
+            texto: "Coletamos nome completo, número de WhatsApp e data de nascimento, exclusivamente para fins de agendamento e comunicação sobre seus atendimentos."
+          },
+          {
+            titulo: "2. Finalidade",
+            texto: "Seus dados são utilizados para: confirmar agendamentos, enviar lembretes automáticos, avisar sobre o momento ideal de retorno e enviar mensagem de aniversário."
+          },
+          {
+            titulo: "3. Armazenamento e Segurança",
+            texto: "Seus dados são armazenados com segurança na infraestrutura do Google (Google Sheets e Google Calendar), que possui certificação ISO 27001, criptografia em trânsito e em repouso, e conformidade com padrões internacionais de proteção de dados. Não compartilhamos seus dados com terceiros sob nenhuma circunstância."
+          },
+          {
+            titulo: "4. Seus Direitos (LGPD — Lei nº 13.709/2018)",
+            texto: "Você tem direito a: acessar seus dados, corrigir informações incorretas e solicitar a exclusão completa dos seus dados a qualquer momento."
+          },
+          {
+            titulo: "5. Contato do Responsável",
+            texto: "Vinícius Júlio de Aquino\naquino.inbeleza@gmail.com\nR. Carlos Gomes, 256 - Ideal, Ipatinga - MG"
+          },
+        ].map((item,i)=>(
+          <div key={i} style={{marginBottom:20}}>
+            <div style={{fontWeight:600,color:"#ede9e3",fontSize:14,marginBottom:6}}>{item.titulo}</div>
+            <div style={{color:"#888",fontSize:13,lineHeight:1.7,whiteSpace:"pre-line"}}>{item.texto}</div>
+          </div>
+        ))}
+
+        {/* Selo Google */}
+        <div style={{marginTop:24,padding:"14px 16px",background:"#0a0a0a",borderRadius:8,border:`1px solid #1e1e1e`,display:"flex",alignItems:"center",gap:12}}>
+          <div style={{fontSize:24}}>🔒</div>
+          <div>
+            <div style={{fontSize:12,fontWeight:600,color:"#ede9e3",marginBottom:2}}>Protegido pela infraestrutura Google</div>
+            <div style={{fontSize:11,color:"#555",lineHeight:1.5}}>Certificação ISO 27001 · Criptografia AES-256 · Conformidade GDPR/LGPD</div>
+          </div>
+        </div>
+
+        <div style={{marginTop:16,fontSize:11,color:"#444",textAlign:"center"}}>
+          Última atualização: maio de 2026
+        </div>
+
+        <button onClick={onFechar}
+          style={{width:"100%",marginTop:20,background:"#c9a84c",color:"#000",padding:"13px",borderRadius:8,fontWeight:700,fontSize:13,letterSpacing:2,textTransform:"uppercase",border:"none",cursor:"pointer"}}>
+          Entendido ✓
+        </button>
+      </div>
+    </div>
   )
 }
 
