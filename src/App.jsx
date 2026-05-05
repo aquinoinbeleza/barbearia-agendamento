@@ -13,12 +13,25 @@ const BARBEARIA = {
 }
 
 const SERVICOS = [
-  { id:"1", nome:"Corte Clássico",   preco:45,  duracao:45,  icon:"✂️",  desc:"Tesoura e máquina" },
-  { id:"2", nome:"Degradê + Barba",  preco:65,  duracao:60,  icon:"🪒",  desc:"Combo masculino" },
-  { id:"3", nome:"Barba Navalha",    preco:35,  duracao:30,  icon:"🧔",  desc:"Tradicional c/ toalha" },
-  { id:"4", nome:"Coloração",        preco:90,  duracao:90,  icon:"🎨",  desc:"Tintura profissional" },
-  { id:"5", nome:"Platinado",        preco:150, duracao:120, icon:"⚡",  desc:"Descoloração completa" },
-  { id:"6", nome:"Sobrancelha",      preco:25,  duracao:20,  icon:"🔍",  desc:"Design + limpeza" },
+  { id:"1",  nome:"Corte",                              preco:40,  duracao:60,  icon:"✂️", desc:"Tesoura e máquina" },
+  { id:"2",  nome:"Barba",                              preco:35,  duracao:35,  icon:"🪒", desc:"Navalha + toalha quente" },
+  { id:"3",  nome:"Acabamento",                         preco:15,  duracao:15,  icon:"💈", desc:"Pescoço e entorno" },
+  { id:"4",  nome:"Sobrancelha Navalha",                preco:15,  duracao:15,  icon:"🔍", desc:"Design com navalha" },
+  { id:"5",  nome:"Sobrancelha Pinça",                  preco:35,  duracao:45,  icon:"🔍", desc:"Modelagem com pinça" },
+  { id:"6",  nome:"Corte e Barba",                      preco:65,  duracao:90,  icon:"⭐", desc:"Combo completo" },
+  { id:"7",  nome:"Corte + Barba + Sobrancelha",        preco:75,  duracao:105, icon:"👑", desc:"Pacote premium" },
+  { id:"8",  nome:"Corte e Sobrancelha",                preco:50,  duracao:75,  icon:"✨", desc:"Corte + sobrancelha navalha" },
+  { id:"9",  nome:"Barba + Sobrancelha + Acabamento",   preco:55,  duracao:45,  icon:"💫", desc:"Combo rosto completo" },
+  { id:"10", nome:"Barba + Sobrancelha ou Acabamento",  preco:45,  duracao:40,  icon:"🪒", desc:"Barba + 1 complemento" },
+  { id:"11", nome:"Relaxamento",                        preco:40,  duracao:30,  icon:"💧", desc:"A partir de R$ 40" },
+  { id:"12", nome:"Hidratação",                         preco:35,  duracao:45,  icon:"💧", desc:"A partir de R$ 35" },
+  { id:"13", nome:"Corte e Relaxamento",                preco:70,  duracao:90,  icon:"✂️", desc:"A partir de R$ 70" },
+  { id:"14", nome:"Barboterapia",         preco:0, duracao:60,  icon:"🧴", desc:"A consultar", disabled:true },
+  { id:"15", nome:"Botox Capilar",        preco:0, duracao:120, icon:"💎", desc:"A consultar", disabled:true },
+  { id:"16", nome:"Selagem",              preco:0, duracao:180, icon:"💎", desc:"A consultar", disabled:true },
+  { id:"17", nome:"Barba e Botox",        preco:0, duracao:120, icon:"🧴", desc:"A consultar", disabled:true },
+  { id:"18", nome:"Corte e Botox",        preco:0, duracao:180, icon:"💎", desc:"A consultar", disabled:true },
+  { id:"19", nome:"Corte e Selagem",      preco:0, duracao:240, icon:"💎", desc:"A consultar", disabled:true },
 ]
 // ═══════════════════════════════════════════════════════════════
 
@@ -282,7 +295,8 @@ export default function App() {
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
               {SERVICOS.map((s,i) => (
                 <button key={s.id} className="svc-card anim"
-                  onClick={() => { setServico(s); setStep(2) }}
+                  onClick={() => { if(!s.disabled){ setServico(s); setStep(2) } }}
+                  disabled={s.disabled}
                   style={{
                     background: servico?.id===s.id ? C.goldDim : C.card,
                     border:`1px solid ${servico?.id===s.id ? C.gold : C.border}`,
@@ -293,7 +307,9 @@ export default function App() {
                   <div style={{fontWeight:600,fontSize:15,color:C.text,marginBottom:4}}>{s.nome}</div>
                   <div style={{fontSize:12,color:C.sub,marginBottom:14}}>{s.desc}</div>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                    <span style={{color:C.gold,fontWeight:700,fontSize:17}}>R$ {s.preco}</span>
+                    <span style={{color:s.disabled?C.muted:C.gold,fontWeight:700,fontSize:17}}>
+                       {s.disabled ? "A consultar" : `R$ ${s.preco}`}
+                      </span>
                     <span style={{color:C.muted,fontSize:12}}>{s.duracao} min</span>
                   </div>
                 </button>
