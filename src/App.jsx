@@ -26,7 +26,7 @@ const SERVICOS = [
   { id:"10", nome:"Barba + Sobrancelha ou Acabamento",          preco:45,  duracao:40,  icon:"🪒", desc:"Barba + 1 complemento" },
   { id:"11", nome:"Relaxamento",                                preco:40,  duracao:30,  icon:"💧", desc:"A partir de R$ 40" },
   { id:"12", nome:"Hidratação",                                 preco:35,  duracao:45,  icon:"💧", desc:"A partir de R$ 35" },
-  { id:"13", nome:"Corte e Relaxamento",                        preco:70,  duracao:90,  icon:"✂️", desc:"A partir de R$ 70" },
+  { id:"13", nome:"Corte e Relaxamento",                        preco:75,  duracao:90,  icon:"✂️", desc:"A partir de R$ 70" },
   { id:"14", nome:"Barboterapia",    preco:0, duracao:60,  icon:"🧴", desc:"A consultar", disabled:true },
   { id:"15", nome:"Botox Capilar",   preco:0, duracao:120, icon:"💎", desc:"A consultar", disabled:true },
   { id:"16", nome:"Selagem",         preco:0, duracao:180, icon:"💎", desc:"A consultar", disabled:true },
