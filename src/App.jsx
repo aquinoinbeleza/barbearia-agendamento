@@ -105,6 +105,12 @@ export default function App() {
   // LGPD
   const [concordou,     setConcordou]     = useState(false)
   const [politicaAberta, setPoliticaAberta] = useState(false)
+  // Cancelamento
+  const [cancelTel,    setCancelTel]    = useState("")
+  const [cancelAgs,    setCancelAgs]    = useState([])
+  const [cancelSel,    setCancelSel]    = useState(null)
+  const [buscandoAgs,  setBuscandoAgs]  = useState(false)
+  const [cancelando,   setCancelando]   = useState(false)
   // Admin
   const [adminAuth,   setAdminAuth]   = useState(false)
   const [adminPass,   setAdminPass]   = useState("")
@@ -207,6 +213,45 @@ export default function App() {
       else setError(data.error || "Erro ao confirmar. Tente novamente.")
     } catch { setError("Erro de conexão. Tente novamente.") }
     setSubmitting(false)
+  }
+
+  // ── Buscar agendamentos do cliente ──────────────────────────────
+  const buscarMeusAgendamentos = async (tel) => {
+    setBuscandoAgs(true); setError("")
+    if (GAS_URL.startsWith("COLE")) {
+      await new Promise(r => setTimeout(r, 800))
+      setCancelAgs([
+        { id:"AGD001", servico:"Corte Clássico", dataBR:"sexta-feira, 9 de maio", horario:"14:00", preco:40 },
+        { id:"AGD002", servico:"Barba Navalha",  dataBR:"segunda-feira, 12 de maio", horario:"10:30", preco:35 },
+      ])
+      setStep("cancel-lista"); setBuscandoAgs(false); return
+    }
+    try {
+      const r = await fetch(`${GAS_URL}?action=meusAgendamentos&tel=${telLimpo(tel)}`)
+      const d = await r.json()
+      setCancelAgs(d.agendamentos || [])
+      setStep("cancel-lista")
+    } catch { setError("Erro de conexão. Tente novamente.") }
+    setBuscandoAgs(false)
+  }
+
+  // ── Executar cancelamento ────────────────────────────────────────
+  const executarCancelamento = async () => {
+    setCancelando(true); setError("")
+    if (GAS_URL.startsWith("COLE")) {
+      await new Promise(r => setTimeout(r, 1000))
+      setStep("cancel-ok"); setCancelando(false); return
+    }
+    try {
+      const r = await fetch(GAS_URL, {
+        method: "POST",
+        body: JSON.stringify({ action:"cancelar", agendamentoId:cancelSel.id, tel:telLimpo(cancelTel) })
+      })
+      const d = await r.json()
+      if (d.success) setStep("cancel-ok")
+      else setError(d.error || "Erro ao cancelar. Tente novamente.")
+    } catch { setError("Erro de conexão.") }
+    setCancelando(false)
   }
 
   const resetar = () => {
@@ -366,6 +411,10 @@ export default function App() {
       <div className="anim" style={{animationDelay:".4s",marginTop:32,display:"flex",flexDirection:"column",gap:6}}>
         <p style={{color:C.muted,fontSize:13}}>📍 {BARBEARIA.endereco}</p>
         <p style={{color:C.muted,fontSize:13}}>📱 {BARBEARIA.instagram}</p>
+        <button onClick={()=>{ setCancelTel(""); setCancelAgs([]); setCancelSel(null); setStep("cancel-phone") }}
+          style={{color:C.muted,fontSize:12,textDecoration:"underline",marginTop:8,background:"none",border:"none",cursor:"pointer"}}>
+          Cancelar agendamento existente
+        </button>
       </div>
     </div>
   )
@@ -506,6 +555,122 @@ export default function App() {
       </div>
     )
   }
+
+  // ════════════════════════════════════════════════════════════════
+  //  CANCELAMENTO — PHONE
+  // ════════════════════════════════════════════════════════════════
+  if (step === "cancel-phone") {
+    const telOk = telLimpo(cancelTel).length >= 10
+    return (
+      <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24,background:C.bg}}>
+        <div className="anim" style={{maxWidth:400,width:"100%"}}>
+          <button className="back-btn" onClick={resetar} style={{color:C.muted,fontSize:14,marginBottom:32,display:"flex",alignItems:"center",gap:6,transition:"color .15s",background:"none",border:"none",cursor:"pointer"}}>← Voltar</button>
+          <div style={{fontSize:40,marginBottom:16,textAlign:"center"}}>📋</div>
+          <h2 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:32,fontWeight:600,marginBottom:8,textAlign:"center"}}>Meus Agendamentos</h2>
+          <p style={{color:C.sub,fontSize:14,marginBottom:32,textAlign:"center"}}>Digite seu WhatsApp para ver seus agendamentos</p>
+          <Campo label="WhatsApp com DDD" value={cancelTel} onChange={v=>setCancelTel(formatarTel(v))} placeholder="(31) 99999-9999" type="tel"/>
+          {error && <p style={{color:C.red,fontSize:13,marginTop:12,textAlign:"center"}}>{error}</p>}
+          <button className="gold-btn" onClick={()=>buscarMeusAgendamentos(cancelTel)} disabled={!telOk||buscandoAgs}
+            style={{width:"100%",background:telOk&&!buscandoAgs?C.gold:C.muted,color:telOk&&!buscandoAgs?"#000":C.sub,padding:"16px",borderRadius:8,fontWeight:700,fontSize:14,marginTop:20,letterSpacing:2,textTransform:"uppercase",border:"none",cursor:"pointer",transition:"all .15s"}}>
+            {buscandoAgs ? <span style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8}}><span style={{width:16,height:16,border:"2px solid #000",borderTop:"2px solid transparent",borderRadius:"50%",display:"inline-block",animation:"spin .7s linear infinite"}}/>Buscando…</span> : "Ver Agendamentos →"}
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  //  CANCELAMENTO — LISTA
+  // ════════════════════════════════════════════════════════════════
+  if (step === "cancel-lista") return (
+    <div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",alignItems:"center"}}>
+      <header style={{width:"100%",maxWidth:560,padding:"20px 24px 0",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:20,fontWeight:600,color:C.gold}}>AQUINO</div>
+      </header>
+      <main style={{width:"100%",maxWidth:560,padding:"32px 24px 64px"}}>
+        <button className="back-btn" onClick={()=>setStep("cancel-phone")} style={{color:C.muted,fontSize:14,marginBottom:24,display:"flex",alignItems:"center",gap:6,transition:"color .15s",background:"none",border:"none",cursor:"pointer"}}>← Voltar</button>
+        <div className="anim" style={{marginBottom:28}}>
+          <h1 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:32,fontWeight:600,color:C.text}}>Seus Agendamentos</h1>
+          <p style={{color:C.sub,marginTop:8,fontSize:14}}>Selecione o que deseja cancelar</p>
+        </div>
+        {cancelAgs.length === 0 ? (
+          <div style={{textAlign:"center",padding:"48px 0"}}>
+            <div style={{fontSize:40,marginBottom:16}}>📭</div>
+            <p style={{color:C.sub,marginBottom:20}}>Nenhum agendamento futuro encontrado.</p>
+            <button onClick={()=>setStep("hero")} style={{color:C.gold,fontSize:14,textDecoration:"underline",background:"none",border:"none",cursor:"pointer"}}>Fazer novo agendamento</button>
+          </div>
+        ) : (
+          <div style={{display:"flex",flexDirection:"column",gap:12}}>
+            {cancelAgs.map((ag,i) => (
+              <div key={ag.id} className="anim" style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"20px",animationDelay:`${i*.07}s`}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
+                  <div>
+                    <div style={{fontWeight:600,fontSize:16,color:C.text,marginBottom:4}}>{ag.servico}</div>
+                    <div style={{color:C.sub,fontSize:13}}>📅 {ag.dataBR} às {ag.horario}</div>
+                  </div>
+                  <div style={{color:C.gold,fontWeight:700,fontSize:16}}>R$ {ag.preco}</div>
+                </div>
+                <button onClick={()=>{setCancelSel(ag);setError("");setStep("cancel-confirm")}}
+                  style={{width:"100%",padding:"11px",borderRadius:8,border:`1px solid ${C.red}`,color:C.red,background:"transparent",fontWeight:600,fontSize:13,letterSpacing:1,textTransform:"uppercase",cursor:"pointer",transition:"all .15s"}}
+                  onMouseEnter={e=>e.currentTarget.style.background=`${C.red}15`}
+                  onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                  ✕ Cancelar este agendamento
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </main>
+    </div>
+  )
+
+  // ════════════════════════════════════════════════════════════════
+  //  CANCELAMENTO — CONFIRMAR
+  // ════════════════════════════════════════════════════════════════
+  if (step === "cancel-confirm") return (
+    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:24,background:C.bg}}>
+      <div className="anim-scale" style={{maxWidth:420,width:"100%",textAlign:"center"}}>
+        <div style={{fontSize:48,marginBottom:20}}>⚠️</div>
+        <h2 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:30,fontWeight:600,marginBottom:8}}>Confirmar cancelamento?</h2>
+        <p style={{color:C.sub,fontSize:14,marginBottom:24}}>Esta ação não pode ser desfeita</p>
+        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"20px 24px",marginBottom:24,textAlign:"left"}}>
+          <div style={{fontWeight:600,fontSize:16,color:C.text,marginBottom:8}}>{cancelSel?.servico}</div>
+          <div style={{color:C.sub,fontSize:14,lineHeight:1.8}}>
+            <div>📅 {cancelSel?.dataBR}</div>
+            <div>🕐 {cancelSel?.horario}</div>
+            <div>💰 R$ {cancelSel?.preco}</div>
+          </div>
+        </div>
+        {error && <p style={{color:C.red,fontSize:13,marginBottom:16}}>{error}</p>}
+        <div style={{display:"flex",gap:12}}>
+          <button onClick={()=>setStep("cancel-lista")} style={{flex:1,padding:"15px",borderRadius:8,border:`1px solid ${C.border}`,color:C.sub,background:"transparent",fontWeight:600,fontSize:14,cursor:"pointer"}}>Não, manter</button>
+          <button className="gold-btn" onClick={executarCancelamento} disabled={cancelando}
+            style={{flex:1,padding:"15px",borderRadius:8,border:"none",background:cancelando?C.muted:C.red,color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",transition:"all .15s"}}>
+            {cancelando ? <span style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8}}><span style={{width:14,height:14,border:"2px solid #fff",borderTop:"2px solid transparent",borderRadius:"50%",display:"inline-block",animation:"spin .7s linear infinite"}}/>Cancelando…</span> : "Sim, cancelar"}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+
+  // ════════════════════════════════════════════════════════════════
+  //  CANCELAMENTO — SUCESSO
+  // ════════════════════════════════════════════════════════════════
+  if (step === "cancel-ok") return (
+    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:24,background:C.bg}}>
+      <div className="anim-scale" style={{maxWidth:380,width:"100%",textAlign:"center"}}>
+        <div style={{width:72,height:72,borderRadius:"50%",border:`2px solid ${C.red}`,background:`${C.red}12`,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 24px",fontSize:28}}>✕</div>
+        <h2 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:30,fontWeight:600,marginBottom:12}}>Agendamento cancelado</h2>
+        <p style={{color:C.sub,fontSize:14,marginBottom:4}}>{cancelSel?.servico}</p>
+        <p style={{color:C.muted,fontSize:13,marginBottom:32}}>{cancelSel?.dataBR} às {cancelSel?.horario}</p>
+        <button className="gold-btn" onClick={()=>setStep("hero")}
+          style={{background:C.gold,color:"#000",padding:"14px 36px",borderRadius:8,fontWeight:700,fontSize:13,letterSpacing:2,textTransform:"uppercase",border:"none",cursor:"pointer",transition:"all .15s"}}>
+          Fazer novo agendamento
+        </button>
+        <p style={{color:C.muted,fontSize:12,marginTop:16}}>Você receberá confirmação no WhatsApp 📱</p>
+      </div>
+    </div>
+  )
 
   // ════════════════════════════════════════════════════════════════
   //  STEP: SUCESSO
@@ -788,4 +953,3 @@ export function PoliticaModal({ aberta, onFechar }) {
     </div>
   )
 }
-
