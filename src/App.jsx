@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react"
 //  ⚙️  CONFIGURAÇÃO
 // ═══════════════════════════════════════════════════════════════
 const GAS_URL = "https://script.google.com/macros/s/AKfycbyYk03d8DY8NQTDRNEfb3CSUO0gJOi5Ya-TcYyj9VCj_VEwnCumwoLI15WgXJL1Bvz9_Q/exec"
+const SITE_TOKEN = "aq2025site"
 const ADMIN_SENHA = "aquino2025"   // ← troque pela sua senha do painel
 
 const BARBEARIA = {
@@ -159,7 +160,7 @@ export default function App() {
       setTimeout(()=>{ setSlots(gerarSlotsMock()); setLoadSlots(false) }, 900); return
     }
     const p = new URLSearchParams({ action:"slots", data:dataSel.toISOString().split("T")[0], duracao:servico.duracao })
-    fetch(`${GAS_URL}?${p}`)
+    fetch(`${GAS_URL}?${p}&token=${SITE_TOKEN}`)
       .then(r=>r.json())
       .then(d=>{ setSlots(d.slots||[]); setLoadSlots(false) })
       .catch(()=>{ setSlots(gerarSlotsMock()); setLoadSlots(false) })
@@ -173,7 +174,7 @@ export default function App() {
       setIsNovo(true); setVerificando(false); setStep("register"); return
     }
     try {
-      const r    = await fetch(`${GAS_URL}?action=verificarCliente&tel=${telLimpo(tel)}`)
+      const r    = await fetch(`${GAS_URL}?action=verificarCliente&tel=${telLimpo(tel)}&token=${SITE_TOKEN}`)
       const data = await r.json()
       if (data.encontrado) {
         setCliente({ nome:data.nome, telefone:tel, nascimento:data.nascimento||"" })
@@ -202,7 +203,7 @@ export default function App() {
       const res  = await fetch(GAS_URL, {
         method:"POST",
         body: JSON.stringify({
-          action:"agendamento",
+          action:"agendamento", token:SITE_TOKEN,
           servico, data:dataSel?.toISOString().split("T")[0],
           horario, nome:cliente.nome, telefone:telLimpo(cliente.telefone),
           nascimento:cliente.nascimento, isNovo
@@ -227,7 +228,7 @@ export default function App() {
       setStep("cancel-lista"); setBuscandoAgs(false); return
     }
     try {
-      const r = await fetch(`${GAS_URL}?action=meusAgendamentos&tel=${telLimpo(tel)}`)
+      const r = await fetch(`${GAS_URL}?action=meusAgendamentos&tel=${telLimpo(tel)}&token=${SITE_TOKEN}`)
       const d = await r.json()
       setCancelAgs(d.agendamentos || [])
       setStep("cancel-lista")
@@ -245,7 +246,7 @@ export default function App() {
     try {
       const r = await fetch(GAS_URL, {
         method: "POST",
-        body: JSON.stringify({ action:"cancelar", agendamentoId:cancelSel.id, tel:telLimpo(cancelTel) })
+        body: JSON.stringify({ action:"cancelar", token:SITE_TOKEN, agendamentoId:cancelSel.id, tel:telLimpo(cancelTel) })
       })
       const d = await r.json()
       if (d.success) setStep("cancel-ok")
@@ -264,7 +265,7 @@ export default function App() {
   const carregarAdmin = async () => {
     setLoadAdmin(true); setAdminError("")
     try {
-      const r = await fetch(`${GAS_URL}?action=dashboard&key=${ADMIN_SENHA}`)
+      const r = await fetch(GAS_URL, { method:"POST", body: JSON.stringify({ action:"dashboard", key:ADMIN_SENHA }) })
       const d = await r.json()
       if (d.clientes) setClientes(d.clientes)
       else setAdminError("Erro ao carregar dados.")
