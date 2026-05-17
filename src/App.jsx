@@ -118,6 +118,16 @@ export default function App() {
   const [clientes,    setClientes]    = useState([])
   const [loadAdmin,   setLoadAdmin]   = useState(false)
   const [adminError,  setAdminError]  = useState("")
+  const [adminTab,    setAdminTab]    = useState("clientes")
+  // Configurações (carregadas do GAS via Script Properties)
+  const [cfg, setCfg] = useState({
+    diasBloqueados: [0, 1],   // 0=dom, 1=seg por padrão
+    horaInicio: 8,
+    horaFim: 19,
+    intervaloDias: 15,
+  })
+  const [cfgSaving, setCfgSaving] = useState(false)
+  const [cfgMsg,    setCfgMsg]    = useState("")
 
   // CSS global
   useEffect(() => {
@@ -293,93 +303,213 @@ export default function App() {
       </div>
     )
 
+    // ── Salvar configurações no GAS (Script Properties) ──────────
+    const salvarConfigs = async () => {
+      setCfgSaving(true); setCfgMsg("")
+      try {
+        const r = await fetch(GAS_URL, {
+          method:"POST",
+          body: JSON.stringify({ action:"salvarConfig", token:SITE_TOKEN, key:ADMIN_SENHA, config: cfg })
+        })
+        const d = await r.json()
+        setCfgMsg(d.success ? "✅ Configurações salvas!" : "❌ Erro ao salvar.")
+      } catch { setCfgMsg("❌ Erro de conexão.") }
+      setCfgSaving(false)
+      setTimeout(()=>setCfgMsg(""), 3000)
+    }
+
+    const DIAS_SEMANA = ["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"]
+
+    const toggleDia = (idx) => {
+      setCfg(prev => ({
+        ...prev,
+        diasBloqueados: prev.diasBloqueados.includes(idx)
+          ? prev.diasBloqueados.filter(d => d !== idx)
+          : [...prev.diasBloqueados, idx]
+      }))
+    }
+
     return (
-      <div style={{minHeight:"100vh",background:C.bg,padding:"0 0 64px"}}>
-        {/* Header admin */}
+      <div style={{minHeight:"100vh",background:C.bg,paddingBottom:64}}>
+
+        {/* ── Header fixo ── */}
         <div style={{background:C.card,borderBottom:`1px solid ${C.border}`,padding:"16px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:10}}>
-          <div>
-            <div style={{fontFamily:"'Cormorant Garamond',serif",color:C.gold,fontSize:20,fontWeight:600}}>Painel de Clientes</div>
-            <div style={{color:C.sub,fontSize:12}}>{BARBEARIA.nome}</div>
+          <div style={{fontFamily:"'Cormorant Garamond',serif",color:C.gold,fontSize:20,fontWeight:600}}>
+            AQUINO <span style={{color:C.muted,fontSize:13,fontWeight:400}}>Admin</span>
           </div>
-          <div style={{display:"flex",gap:12,alignItems:"center"}}>
-            <button onClick={carregarAdmin} style={{color:C.sub,fontSize:13,padding:"8px 16px",border:`1px solid ${C.border}`,borderRadius:6}}>
-              ↺ Atualizar
-            </button>
-            <button onClick={()=>{ setAdminAuth(false); setAdminPass(""); setClientes([]) }}
-              style={{color:C.sub,fontSize:13}}>Sair</button>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            <button onClick={carregarAdmin} style={{color:C.sub,fontSize:13,padding:"8px 14px",border:`1px solid ${C.border}`,borderRadius:6}}>↺ Atualizar</button>
+            <button onClick={()=>{ setAdminAuth(false); setAdminPass(""); setClientes([]) }} style={{color:C.sub,fontSize:13}}>Sair</button>
           </div>
         </div>
 
-        <div style={{maxWidth:900,margin:"0 auto",padding:"24px 16px"}}>
+        {/* ── Abas ── */}
+        <div style={{maxWidth:960,margin:"0 auto",padding:"0 16px"}}>
+          <div style={{display:"flex",gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:28,marginTop:8}}>
+            {[["clientes","👥 Clientes"],["config","⚙️ Configurações"]].map(([tab,label])=>(
+              <button key={tab} onClick={()=>setAdminTab(tab)}
+                style={{padding:"14px 24px",fontSize:13,fontWeight:adminTab===tab?600:400,color:adminTab===tab?C.gold:C.sub,borderBottom:adminTab===tab?`2px solid ${C.gold}`:"2px solid transparent",background:"none",cursor:"pointer",transition:"all .15s"}}>
+                {label}
+              </button>
+            ))}
+          </div>
 
-          {/* Cards resumo */}
-          {clientes.length > 0 && (
-            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:28}}>
-              {[
-                { label:"Total de clientes",   val:clientes.length,    icon:"👥" },
-                { label:"Aniversários hoje",   val:clientes.filter(c=>{ const [d,m]=c.nascimento?.split("/")||[]; const hoje=new Date(); return parseInt(d)===hoje.getDate()&&parseInt(m)===hoje.getMonth()+1 }).length, icon:"🎂" },
-                { label:"Precisam retornar",   val:clientes.filter(c=>c.diasDesde>=(c.intervaloDias||15)).length, icon:"⏰" },
-              ].map((card,i)=>(
-                <div key={i} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"16px 20px"}}>
-                  <div style={{fontSize:22,marginBottom:6}}>{card.icon}</div>
-                  <div style={{fontSize:24,fontWeight:700,color:i===2?C.gold:C.text}}>{card.val}</div>
-                  <div style={{fontSize:12,color:C.sub,marginTop:2}}>{card.label}</div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {loadAdmin ? (
-            <div style={{textAlign:"center",padding:64}}>
-              <div style={{width:32,height:32,border:`3px solid ${C.border}`,borderTop:`3px solid ${C.gold}`,borderRadius:"50%",animation:"spin .7s linear infinite",margin:"0 auto 16px"}}/>
-              <p style={{color:C.sub}}>Carregando clientes…</p>
-            </div>
-          ) : adminError ? (
-            <p style={{color:C.red,textAlign:"center",padding:32}}>{adminError}</p>
-          ) : clientes.length === 0 ? (
-            <p style={{color:C.sub,textAlign:"center",padding:64}}>Nenhum cliente cadastrado ainda.</p>
-          ) : (
-            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden"}}>
-              {/* Header tabela */}
-              <div style={{display:"grid",gridTemplateColumns:"2fr 1.2fr 1fr 0.8fr 0.8fr 1fr",gap:8,padding:"12px 16px",borderBottom:`1px solid ${C.border}`,fontSize:11,color:C.sub,textTransform:"uppercase",letterSpacing:1}}>
-                <span>Cliente</span><span>WhatsApp</span><span>Último atend.</span><span>Visitas</span><span>Dias</span><span>Status</span>
+          {/* ════ ABA CLIENTES ════ */}
+          {adminTab === "clientes" && (<>
+            {clientes.length > 0 && (
+              <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:28}}>
+                {[
+                  { label:"Total de clientes", val:clientes.length, icon:"👥" },
+                  { label:"Aniversários hoje",  val:clientes.filter(c=>{ const [d,m]=c.nascimento?.split("/")||[]; const h=new Date(); return parseInt(d)===h.getDate()&&parseInt(m)===h.getMonth()+1 }).length, icon:"🎂" },
+                  { label:"Precisam retornar",  val:clientes.filter(c=>c.diasDesde>=(c.intervaloDias||15)).length, icon:"⏰" },
+                ].map((card,i)=>(
+                  <div key={i} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"16px 20px"}}>
+                    <div style={{fontSize:22,marginBottom:6}}>{card.icon}</div>
+                    <div style={{fontSize:24,fontWeight:700,color:i===2?C.gold:C.text}}>{card.val}</div>
+                    <div style={{fontSize:12,color:C.sub,marginTop:2}}>{card.label}</div>
+                  </div>
+                ))}
               </div>
-              {clientes.map((c,i)=>{
-                const diasDesde   = c.diasDesde || 0
-                const intervalo   = c.intervaloDias || 15
-                const urgente     = diasDesde >= intervalo
-                const quaseNaHora = diasDesde >= intervalo - 5 && !urgente
-                const nascToday   = ()=>{ const [d,m]=c.nascimento?.split("/")||[]; const h=new Date(); return parseInt(d)===h.getDate()&&parseInt(m)===h.getMonth()+1 }
-                const idade       = calcularIdade(c.nascimento)
+            )}
 
-                return (
-                  <div key={i} className="admin-row" style={{display:"grid",gridTemplateColumns:"2fr 1.2fr 1fr 0.8fr 0.8fr 1fr",gap:8,padding:"14px 16px",borderBottom:`1px solid ${C.border}`,fontSize:13,alignItems:"center",transition:"background .15s"}}>
-                    <div>
-                      <div style={{fontWeight:500,color:C.text}}>{c.nome}</div>
-                      <div style={{fontSize:11,color:C.sub,marginTop:2}}>
-                        {nascToday() ? "🎂 Aniversário hoje!" : c.nascimento ? `${c.nascimento}${idade?" ("+idade+" anos)":""}` : "—"}
+            {loadAdmin ? (
+              <div style={{textAlign:"center",padding:64}}>
+                <div style={{width:32,height:32,border:`3px solid ${C.border}`,borderTop:`3px solid ${C.gold}`,borderRadius:"50%",animation:"spin .7s linear infinite",margin:"0 auto 16px"}}/>
+                <p style={{color:C.sub}}>Carregando clientes…</p>
+              </div>
+            ) : adminError ? (
+              <p style={{color:C.red,textAlign:"center",padding:32}}>{adminError}</p>
+            ) : clientes.length === 0 ? (
+              <p style={{color:C.sub,textAlign:"center",padding:64}}>Nenhum cliente cadastrado ainda.</p>
+            ) : (
+              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden"}}>
+                <div style={{display:"grid",gridTemplateColumns:"2fr 1.2fr 1fr 0.8fr 0.8fr 1fr",gap:8,padding:"12px 16px",borderBottom:`1px solid ${C.border}`,fontSize:11,color:C.sub,textTransform:"uppercase",letterSpacing:1}}>
+                  <span>Cliente</span><span>WhatsApp</span><span>Último atend.</span><span>Visitas</span><span>Dias</span><span>Status</span>
+                </div>
+                {clientes.map((c,i)=>{
+                  const diasDesde   = c.diasDesde || 0
+                  const intervalo   = c.intervaloDias || 15
+                  const urgente     = diasDesde >= intervalo
+                  const quaseNaHora = diasDesde >= intervalo - 5 && !urgente
+                  const nascToday   = ()=>{ const [d,m]=c.nascimento?.split("/")||[]; const h=new Date(); return parseInt(d)===h.getDate()&&parseInt(m)===h.getMonth()+1 }
+                  const idade       = calcularIdade(c.nascimento)
+                  return (
+                    <div key={i} className="admin-row" style={{display:"grid",gridTemplateColumns:"2fr 1.2fr 1fr 0.8fr 0.8fr 1fr",gap:8,padding:"14px 16px",borderBottom:`1px solid ${C.border}`,fontSize:13,alignItems:"center",transition:"background .15s"}}>
+                      <div>
+                        <div style={{fontWeight:500,color:C.text}}>{c.nome}</div>
+                        <div style={{fontSize:11,color:C.sub,marginTop:2}}>
+                          {nascToday() ? "🎂 Aniversário hoje!" : c.nascimento ? `${c.nascimento}${idade?" ("+idade+" anos)":""}` : "—"}
+                        </div>
+                      </div>
+                      <div style={{color:C.sub,fontSize:12}}>{c.telefone}</div>
+                      <div style={{color:C.sub,fontSize:12}}>{c.ultimaVisita||"—"}</div>
+                      <div style={{color:C.gold,fontWeight:600}}>{c.totalVisitas||0}x</div>
+                      <div style={{color:urgente?C.red:quaseNaHora?C.gold:C.sub,fontWeight:urgente||quaseNaHora?600:400}}>{diasDesde}d</div>
+                      <div>
+                        <span style={{fontSize:10,fontWeight:600,letterSpacing:1,textTransform:"uppercase",padding:"3px 8px",borderRadius:20,
+                          background:urgente?`${C.red}22`:quaseNaHora?`${C.gold}22`:`${C.green}22`,
+                          color:urgente?C.red:quaseNaHora?C.gold:C.green}}>
+                          {urgente?"Chamar":quaseNaHora?"Em breve":"Regular"}
+                        </span>
                       </div>
                     </div>
-                    <div style={{color:C.sub,fontSize:12}}>{c.telefone}</div>
-                    <div style={{color:C.sub,fontSize:12}}>{c.ultimaVisita||"—"}</div>
-                    <div style={{color:C.gold,fontWeight:600}}>{c.totalVisitas||0}x</div>
-                    <div style={{color:urgente?C.red:quaseNaHora?C.gold:C.sub,fontWeight:urgente||quaseNaHora?600:400}}>
-                      {diasDesde}d
-                    </div>
-                    <div>
-                      <span style={{
-                        fontSize:10, fontWeight:600, letterSpacing:1, textTransform:"uppercase", padding:"3px 8px", borderRadius:20,
-                        background: urgente?`${C.red}22`:quaseNaHora?`${C.gold}22`:`${C.green}22`,
-                        color: urgente?C.red:quaseNaHora?C.gold:C.green
-                      }}>
-                        {urgente?"Chamar":quaseNaHora?"Em breve":"Regular"}
-                      </span>
-                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </>)}
+
+          {/* ════ ABA CONFIGURAÇÕES ════ */}
+          {adminTab === "config" && (
+            <div style={{maxWidth:560}}>
+
+              {/* Dias de trabalho */}
+              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"24px",marginBottom:16}}>
+                <div style={{fontWeight:600,fontSize:15,color:C.text,marginBottom:4}}>Dias de atendimento</div>
+                <div style={{fontSize:12,color:C.sub,marginBottom:20}}>Dias marcados em dourado estão <strong>abertos</strong>. Clique para alternar.</div>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                  {DIAS_SEMANA.map((dia, idx) => {
+                    const bloqueado = cfg.diasBloqueados.includes(idx)
+                    return (
+                      <button key={idx} onClick={()=>toggleDia(idx)}
+                        style={{
+                          padding:"10px 16px", borderRadius:8, fontSize:13, fontWeight:600, cursor:"pointer", transition:"all .15s",
+                          background: bloqueado ? C.card : C.goldDim,
+                          border: `1px solid ${bloqueado ? C.border : C.gold}`,
+                          color: bloqueado ? C.muted : C.gold,
+                          textDecoration: bloqueado ? "line-through" : "none",
+                          opacity: bloqueado ? 0.5 : 1
+                        }}>
+                        {dia}
+                      </button>
+                    )
+                  })}
+                </div>
+                <div style={{marginTop:16,fontSize:12,color:C.muted}}>
+                  {cfg.diasBloqueados.length === 0
+                    ? "Todos os dias abertos"
+                    : `Fechado: ${cfg.diasBloqueados.map(d=>DIAS_SEMANA[d]).join(", ")}`}
+                </div>
+              </div>
+
+              {/* Horário de funcionamento */}
+              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"24px",marginBottom:16}}>
+                <div style={{fontWeight:600,fontSize:15,color:C.text,marginBottom:4}}>Horário de funcionamento</div>
+                <div style={{fontSize:12,color:C.sub,marginBottom:20}}>Faixa de horários exibida para agendamento.</div>
+                <div style={{display:"flex",gap:24,alignItems:"center",flexWrap:"wrap"}}>
+                  <div>
+                    <label style={{display:"block",color:C.sub,fontSize:11,letterSpacing:2,textTransform:"uppercase",marginBottom:8}}>Abertura</label>
+                    <select value={cfg.horaInicio} onChange={e=>setCfg(p=>({...p,horaInicio:Number(e.target.value)}))}
+                      style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 14px",color:C.text,fontSize:14,cursor:"pointer"}}>
+                      {Array.from({length:13},(_,i)=>i+6).map(h=>(
+                        <option key={h} value={h}>{String(h).padStart(2,"0")}:00</option>
+                      ))}
+                    </select>
                   </div>
-                )
-              })}
+                  <div style={{color:C.muted,fontSize:20,paddingTop:20}}>→</div>
+                  <div>
+                    <label style={{display:"block",color:C.sub,fontSize:11,letterSpacing:2,textTransform:"uppercase",marginBottom:8}}>Encerramento</label>
+                    <select value={cfg.horaFim} onChange={e=>setCfg(p=>({...p,horaFim:Number(e.target.value)}))}
+                      style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 14px",color:C.text,fontSize:14,cursor:"pointer"}}>
+                      {Array.from({length:13},(_,i)=>i+12).map(h=>(
+                        <option key={h} value={h}>{String(h).padStart(2,"0")}:00</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Intervalo de retorno */}
+              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"24px",marginBottom:24}}>
+                <div style={{fontWeight:600,fontSize:15,color:C.text,marginBottom:4}}>Intervalo de retorno</div>
+                <div style={{fontSize:12,color:C.sub,marginBottom:20}}>Quantos dias sem visita para o sistema sugerir retorno ao cliente.</div>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                  {[7,10,14,15,21,30].map(v=>(
+                    <button key={v} onClick={()=>setCfg(p=>({...p,intervaloDias:v}))}
+                      style={{padding:"10px 18px",borderRadius:8,fontSize:13,fontWeight:600,cursor:"pointer",transition:"all .15s",
+                        background:cfg.intervaloDias===v?C.goldDim:C.card,
+                        border:`1px solid ${cfg.intervaloDias===v?C.gold:C.border}`,
+                        color:cfg.intervaloDias===v?C.gold:C.sub}}>
+                      {v} dias
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Botão salvar */}
+              <button onClick={salvarConfigs} disabled={cfgSaving}
+                style={{width:"100%",background:cfgSaving?C.muted:C.gold,color:cfgSaving?"#666":"#000",padding:"16px",borderRadius:8,fontWeight:700,fontSize:14,letterSpacing:2,textTransform:"uppercase",border:"none",cursor:"pointer",transition:"all .15s"}}>
+                {cfgSaving ? "Salvando…" : "💾 Salvar configurações"}
+              </button>
+              {cfgMsg && <p style={{textAlign:"center",marginTop:12,fontSize:13,color:cfgMsg.includes("✅")?C.green:C.red}}>{cfgMsg}</p>}
+
+              <p style={{color:C.muted,fontSize:11,textAlign:"center",marginTop:16,lineHeight:1.6}}>
+                As alterações entram em vigor imediatamente no site.<br/>
+                O GAS usa essas configurações para validar horários disponíveis.
+              </p>
             </div>
           )}
+
         </div>
       </div>
     )
@@ -747,7 +877,7 @@ export default function App() {
             <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8}}>
               {getProximos30Dias().map((d,i)=>{
                 const sel = dataSel?.toDateString()===d.toDateString()
-                const dom = d.getDay()===0
+                const dom = d.getDay()===0 || d.getDay()===1
                 return (
                   <button key={i} className="day-btn anim" disabled={dom}
                     onClick={()=>{ setDataSel(d); setStep("time") }}
