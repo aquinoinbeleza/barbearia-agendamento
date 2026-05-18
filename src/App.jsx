@@ -5,7 +5,7 @@ import { useState, useEffect, useRef } from "react"
 // ═══════════════════════════════════════════════════════════════
 const GAS_URL = "https://script.google.com/macros/s/AKfycbyYk03d8DY8NQTDRNEfb3CSUO0gJOi5Ya-TcYyj9VCj_VEwnCumwoLI15WgXJL1Bvz9_Q/exec"
 const SITE_TOKEN = "aq2025site"
-const ADMIN_SENHA = "aquino2025"   // ← troque pela sua senha do painel
+const ADMIN_SENHA = "aquino2025"
 
 const BARBEARIA = {
   nome:      "AQUINO | Barbearia & Estética",
@@ -43,6 +43,13 @@ const C = {
   gold:"#c9a84c", goldLight:"#dfc070", goldDim:"#c9a84c22",
   text:"#ede9e3", sub:"#888", muted:"#444",
   green:"#4caf82", red:"#e05555", blue:"#4c8fcf",
+}
+
+// ── [FASE 1] Estilos por nível de fidelidade ─────────────────────
+const NIVEL_STYLES = {
+  Ouro:   { cor:"#C9A84C", bg:"#C9A84C22", borda:"#C9A84C66", emoji:"🥇" },
+  Prata:  { cor:"#C0C8D0", bg:"#C0C8D022", borda:"#C0C8D066", emoji:"🥈" },
+  Bronze: { cor:"#CD7F32", bg:"#CD7F3222", borda:"#CD7F3266", emoji:"🥉" },
 }
 
 // ── Utilitários ─────────────────────────────────────────────────
@@ -88,12 +95,11 @@ const PROGRESS = { phone:1, register:1, welcome:1, service:2, date:3, time:4, co
 
 // ════════════════════════════════════════════════════════════════
 export default function App() {
-  // Detecta rota admin
   const isAdmin = typeof window !== "undefined" && window.location.search.includes("admin=1")
 
   const [step,        setStep]        = useState("hero")
   const [cliente,     setCliente]     = useState({ nome:"", telefone:"", nascimento:"" })
-  const [retorno,     setRetorno]     = useState(null) // { totalVisitas, ultimaVisita, diasDesde }
+  const [retorno,     setRetorno]     = useState(null)
   const [isNovo,      setIsNovo]      = useState(true)
   const [servico,     setServico]     = useState(null)
   const [dataSel,     setDataSel]     = useState(null)
@@ -103,29 +109,20 @@ export default function App() {
   const [submitting,  setSubmitting]  = useState(false)
   const [verificando, setVerificando] = useState(false)
   const [error,       setError]       = useState("")
-  // LGPD
   const [concordou,     setConcordou]     = useState(false)
   const [politicaAberta, setPoliticaAberta] = useState(false)
-  // Cancelamento
   const [cancelTel,    setCancelTel]    = useState("")
   const [cancelAgs,    setCancelAgs]    = useState([])
   const [cancelSel,    setCancelSel]    = useState(null)
   const [buscandoAgs,  setBuscandoAgs]  = useState(false)
   const [cancelando,   setCancelando]   = useState(false)
-  // Admin
   const [adminAuth,   setAdminAuth]   = useState(false)
   const [adminPass,   setAdminPass]   = useState("")
   const [clientes,    setClientes]    = useState([])
   const [loadAdmin,   setLoadAdmin]   = useState(false)
   const [adminError,  setAdminError]  = useState("")
   const [adminTab,    setAdminTab]    = useState("clientes")
-  // Configurações (carregadas do GAS via Script Properties)
-  const [cfg, setCfg] = useState({
-    diasBloqueados: [0, 1],   // 0=dom, 1=seg por padrão
-    horaInicio: 8,
-    horaFim: 19,
-    intervaloDias: 15,
-  })
+  const [cfg, setCfg] = useState({ diasBloqueados: [0, 1], horaInicio: 8, horaFim: 19, intervaloDias: 15 })
   const [cfgSaving, setCfgSaving] = useState(false)
   const [cfgMsg,    setCfgMsg]    = useState("")
 
@@ -188,10 +185,20 @@ export default function App() {
       const data = await r.json()
       if (data.encontrado) {
         setCliente({ nome:data.nome, telefone:tel, nascimento:data.nascimento||"" })
-        setRetorno({ totalVisitas:data.totalVisitas, ultimaVisita:data.ultimaVisita, diasDesde:data.diasDesde })
+        // [FASE 1] salva também nivel + score + status
+        setRetorno({
+          totalVisitas: data.totalVisitas,
+          ultimaVisita: data.ultimaVisita,
+          diasDesde:    data.diasDesde,
+          nivel:        data.nivel,
+          score:        data.score,
+          statusLabel:  data.statusLabel,
+          statusCor:    data.statusCor,
+          cancelamentos:data.cancelamentos,
+        })
         setIsNovo(false)
         setStep("welcome")
-        setTimeout(()=>setStep("service"), 2500)
+        setTimeout(()=>setStep("service"), 2800)
       } else {
         setIsNovo(true)
         setStep("register")
@@ -275,7 +282,7 @@ export default function App() {
   const carregarAdmin = async () => {
     setLoadAdmin(true); setAdminError("")
     try {
-      const r = await fetch(GAS_URL, { method:"POST", body: JSON.stringify({ action:"dashboard", key:ADMIN_SENHA }) })
+      const r = await fetch(GAS_URL, { method:"POST", body: JSON.stringify({ action:"dashboard", key:ADMIN_SENHA, token:SITE_TOKEN }) })
       const d = await r.json()
       if (d.clientes) setClientes(d.clientes)
       else setAdminError("Erro ao carregar dados.")
@@ -303,7 +310,6 @@ export default function App() {
       </div>
     )
 
-    // ── Salvar configurações no GAS (Script Properties) ──────────
     const salvarConfigs = async () => {
       setCfgSaving(true); setCfgMsg("")
       try {
@@ -332,7 +338,6 @@ export default function App() {
     return (
       <div style={{minHeight:"100vh",background:C.bg,paddingBottom:64}}>
 
-        {/* ── Header fixo ── */}
         <div style={{background:C.card,borderBottom:`1px solid ${C.border}`,padding:"16px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:10}}>
           <div style={{fontFamily:"'Cormorant Garamond',serif",color:C.gold,fontSize:20,fontWeight:600}}>
             AQUINO <span style={{color:C.muted,fontSize:13,fontWeight:400}}>Admin</span>
@@ -343,8 +348,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* ── Abas ── */}
-        <div style={{maxWidth:960,margin:"0 auto",padding:"0 16px"}}>
+        <div style={{maxWidth:1080,margin:"0 auto",padding:"0 16px"}}>
           <div style={{display:"flex",gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:28,marginTop:8}}>
             {[["clientes","👥 Clientes"],["config","⚙️ Configurações"]].map(([tab,label])=>(
               <button key={tab} onClick={()=>setAdminTab(tab)}
@@ -357,15 +361,16 @@ export default function App() {
           {/* ════ ABA CLIENTES ════ */}
           {adminTab === "clientes" && (<>
             {clientes.length > 0 && (
-              <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:28}}>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:28}}>
                 {[
-                  { label:"Total de clientes", val:clientes.length, icon:"👥" },
-                  { label:"Aniversários hoje",  val:clientes.filter(c=>{ const [d,m]=c.nascimento?.split("/")||[]; const h=new Date(); return parseInt(d)===h.getDate()&&parseInt(m)===h.getMonth()+1 }).length, icon:"🎂" },
-                  { label:"Precisam retornar",  val:clientes.filter(c=>c.diasDesde>=(c.intervaloDias||15)).length, icon:"⏰" },
+                  { label:"Total de clientes", val:clientes.length, icon:"👥", cor:C.text },
+                  { label:"🥇 Ouro",            val:clientes.filter(c=>c.nivel==="Ouro").length, icon:"🥇", cor:NIVEL_STYLES.Ouro.cor },
+                  { label:"🥈 Prata + 🥉 Bronze", val:clientes.filter(c=>c.nivel==="Prata"||c.nivel==="Bronze").length, icon:"💫", cor:NIVEL_STYLES.Prata.cor },
+                  { label:"Precisam retornar",  val:clientes.filter(c=>c.diasDesde>=(c.intervaloDias||15)).length, icon:"⏰", cor:C.gold },
                 ].map((card,i)=>(
                   <div key={i} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"16px 20px"}}>
                     <div style={{fontSize:22,marginBottom:6}}>{card.icon}</div>
-                    <div style={{fontSize:24,fontWeight:700,color:i===2?C.gold:C.text}}>{card.val}</div>
+                    <div style={{fontSize:24,fontWeight:700,color:card.cor}}>{card.val}</div>
                     <div style={{fontSize:12,color:C.sub,marginTop:2}}>{card.label}</div>
                   </div>
                 ))}
@@ -383,8 +388,9 @@ export default function App() {
               <p style={{color:C.sub,textAlign:"center",padding:64}}>Nenhum cliente cadastrado ainda.</p>
             ) : (
               <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden"}}>
-                <div style={{display:"grid",gridTemplateColumns:"2fr 1.2fr 1fr 0.8fr 0.8fr 1fr",gap:8,padding:"12px 16px",borderBottom:`1px solid ${C.border}`,fontSize:11,color:C.sub,textTransform:"uppercase",letterSpacing:1}}>
-                  <span>Cliente</span><span>WhatsApp</span><span>Último atend.</span><span>Visitas</span><span>Dias</span><span>Status</span>
+                {/* [FASE 1] cabeçalho atualizado: + colunas Nível e Score */}
+                <div style={{display:"grid",gridTemplateColumns:"1.8fr 0.9fr 1fr 0.9fr 0.6fr 0.6fr 0.9fr",gap:8,padding:"12px 16px",borderBottom:`1px solid ${C.border}`,fontSize:11,color:C.sub,textTransform:"uppercase",letterSpacing:1}}>
+                  <span>Cliente</span><span>Nível</span><span>WhatsApp</span><span>Último</span><span>Visitas</span><span>Dias</span><span>Score / Status</span>
                 </div>
                 {clientes.map((c,i)=>{
                   const diasDesde   = c.diasDesde || 0
@@ -393,24 +399,57 @@ export default function App() {
                   const quaseNaHora = diasDesde >= intervalo - 5 && !urgente
                   const nascToday   = ()=>{ const [d,m]=c.nascimento?.split("/")||[]; const h=new Date(); return parseInt(d)===h.getDate()&&parseInt(m)===h.getMonth()+1 }
                   const idade       = calcularIdade(c.nascimento)
+                  const ny          = c.nivel ? NIVEL_STYLES[c.nivel] : NIVEL_STYLES.Bronze
+                  const scoreCor    = c.statusCor || C.sub
+
                   return (
-                    <div key={i} className="admin-row" style={{display:"grid",gridTemplateColumns:"2fr 1.2fr 1fr 0.8fr 0.8fr 1fr",gap:8,padding:"14px 16px",borderBottom:`1px solid ${C.border}`,fontSize:13,alignItems:"center",transition:"background .15s"}}>
+                    <div key={i} className="admin-row" style={{display:"grid",gridTemplateColumns:"1.8fr 0.9fr 1fr 0.9fr 0.6fr 0.6fr 0.9fr",gap:8,padding:"14px 16px",borderBottom:`1px solid ${C.border}`,fontSize:13,alignItems:"center",transition:"background .15s"}}>
+                      {/* Cliente */}
                       <div>
-                        <div style={{fontWeight:500,color:C.text}}>{c.nome}</div>
+                        <div style={{fontWeight:500,color:C.text}}>{c.nomeAbreviado || c.nome}</div>
                         <div style={{fontSize:11,color:C.sub,marginTop:2}}>
                           {nascToday() ? "🎂 Aniversário hoje!" : c.nascimento ? `${c.nascimento}${idade?" ("+idade+" anos)":""}` : "—"}
                         </div>
                       </div>
+
+                      {/* [FASE 1] Nível */}
+                      <div>
+                        <span style={{
+                          display:"inline-flex",alignItems:"center",gap:4,
+                          padding:"3px 8px",
+                          background:ny.bg,border:`1px solid ${ny.borda}`,
+                          borderRadius:999,fontSize:10,color:ny.cor,fontWeight:600,
+                        }}>
+                          <span style={{fontSize:11}}>{ny.emoji}</span>
+                          <span>{c.nivel || "Bronze"}</span>
+                        </span>
+                      </div>
+
                       <div style={{color:C.sub,fontSize:12}}>{c.telefone}</div>
                       <div style={{color:C.sub,fontSize:12}}>{c.ultimaVisita||"—"}</div>
                       <div style={{color:C.gold,fontWeight:600}}>{c.totalVisitas||0}x</div>
                       <div style={{color:urgente?C.red:quaseNaHora?C.gold:C.sub,fontWeight:urgente||quaseNaHora?600:400}}>{diasDesde}d</div>
-                      <div>
-                        <span style={{fontSize:10,fontWeight:600,letterSpacing:1,textTransform:"uppercase",padding:"3px 8px",borderRadius:20,
-                          background:urgente?`${C.red}22`:quaseNaHora?`${C.gold}22`:`${C.green}22`,
-                          color:urgente?C.red:quaseNaHora?C.gold:C.green}}>
-                          {urgente?"Chamar":quaseNaHora?"Em breve":"Regular"}
-                        </span>
+
+                      {/* [FASE 1] Score / Status combinado */}
+                      <div style={{display:"flex",alignItems:"center",gap:8}}>
+                        {c.score !== undefined && (
+                          <div style={{
+                            width:28,height:28,borderRadius:"50%",
+                            background:`${scoreCor}22`,border:`1px solid ${scoreCor}66`,
+                            display:"flex",alignItems:"center",justifyContent:"center",
+                            fontSize:11,fontWeight:700,color:scoreCor,
+                          }}>
+                            {c.score}
+                          </div>
+                        )}
+                        <div>
+                          <div style={{fontSize:11,fontWeight:600,color:scoreCor}}>
+                            {c.statusLabel || (urgente?"Chamar":quaseNaHora?"Em breve":"Regular")}
+                          </div>
+                          {c.cancelamentos > 0 && (
+                            <div style={{fontSize:10,color:C.muted}}>{c.cancelamentos} cancel.</div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   )
@@ -423,7 +462,6 @@ export default function App() {
           {adminTab === "config" && (
             <div style={{maxWidth:560}}>
 
-              {/* Dias de trabalho */}
               <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"24px",marginBottom:16}}>
                 <div style={{fontWeight:600,fontSize:15,color:C.text,marginBottom:4}}>Dias de atendimento</div>
                 <div style={{fontSize:12,color:C.sub,marginBottom:20}}>Dias marcados em dourado estão <strong>abertos</strong>. Clique para alternar.</div>
@@ -452,7 +490,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Horário de funcionamento */}
               <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"24px",marginBottom:16}}>
                 <div style={{fontWeight:600,fontSize:15,color:C.text,marginBottom:4}}>Horário de funcionamento</div>
                 <div style={{fontSize:12,color:C.sub,marginBottom:20}}>Faixa de horários exibida para agendamento.</div>
@@ -479,7 +516,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Intervalo de retorno */}
               <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"24px",marginBottom:24}}>
                 <div style={{fontWeight:600,fontSize:15,color:C.text,marginBottom:4}}>Intervalo de retorno</div>
                 <div style={{fontSize:12,color:C.sub,marginBottom:20}}>Quantos dias sem visita para o sistema sugerir retorno ao cliente.</div>
@@ -496,7 +532,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Botão salvar */}
               <button onClick={salvarConfigs} disabled={cfgSaving}
                 style={{width:"100%",background:cfgSaving?C.muted:C.gold,color:cfgSaving?"#666":"#000",padding:"16px",borderRadius:8,fontWeight:700,fontSize:14,letterSpacing:2,textTransform:"uppercase",border:"none",cursor:"pointer",transition:"all .15s"}}>
                 {cfgSaving ? "Salvando…" : "💾 Salvar configurações"}
@@ -504,8 +539,7 @@ export default function App() {
               {cfgMsg && <p style={{textAlign:"center",marginTop:12,fontSize:13,color:cfgMsg.includes("✅")?C.green:C.red}}>{cfgMsg}</p>}
 
               <p style={{color:C.muted,fontSize:11,textAlign:"center",marginTop:16,lineHeight:1.6}}>
-                As alterações entram em vigor imediatamente no site.<br/>
-                O GAS usa essas configurações para validar horários disponíveis.
+                As alterações entram em vigor imediatamente no site.
               </p>
             </div>
           )}
@@ -551,7 +585,7 @@ export default function App() {
   )
 
   // ════════════════════════════════════════════════════════════════
-  //  STEP: TELEFONE (identificação)
+  //  STEP: TELEFONE
   // ════════════════════════════════════════════════════════════════
   if (step === "phone") {
     const telOk = telLimpo(cliente.telefone).length >= 10
@@ -587,22 +621,38 @@ export default function App() {
   }
 
   // ════════════════════════════════════════════════════════════════
-  //  STEP: BEM-VINDO DE VOLTA (cliente existente)
+  //  STEP: BEM-VINDO DE VOLTA  (com badge de nível — FASE 1)
   // ════════════════════════════════════════════════════════════════
   if (step === "welcome") {
     const nome1 = cliente.nome.split(" ")[0]
+    const ny = retorno?.nivel ? NIVEL_STYLES[retorno.nivel] : null
     return (
       <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:24,background:C.bg}}>
-        <div className="anim-scale" style={{maxWidth:360,width:"100%",textAlign:"center"}}>
+        <div className="anim-scale" style={{maxWidth:380,width:"100%",textAlign:"center"}}>
           <div style={{fontSize:56,marginBottom:16,animation:"pulse 1.5s ease infinite"}}>👋</div>
           <h2 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:36,fontWeight:600,marginBottom:8}}>
             Olá de novo,<br/>{nome1}!
           </h2>
-          <p style={{color:C.sub,fontSize:14,marginBottom:24}}>Que bom ter você de volta</p>
+
+          {/* [FASE 1] BADGE DE NÍVEL */}
+          {ny && retorno?.totalVisitas > 0 && (
+            <div style={{
+              display:"inline-flex",alignItems:"center",gap:8,
+              padding:"7px 14px",marginTop:12,marginBottom:8,
+              background:ny.bg, border:`1px solid ${ny.borda}`,
+              borderRadius:999, fontSize:12, color:ny.cor, fontWeight:600,
+              letterSpacing:.5,
+            }}>
+              <span style={{fontSize:15}}>{ny.emoji}</span>
+              <span>Cliente {retorno.nivel}</span>
+            </div>
+          )}
+
+          <p style={{color:C.sub,fontSize:14,marginBottom:24,marginTop:8}}>Que bom ter você de volta</p>
           {retorno && (
-            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"16px",fontSize:13,color:C.sub,lineHeight:2}}>
+            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"16px",fontSize:13,color:C.sub,lineHeight:2,textAlign:"left"}}>
               {retorno.ultimaVisita && <div>📅 Última visita: <span style={{color:C.text}}>{retorno.ultimaVisita}</span></div>}
-              {retorno.totalVisitas && <div>💈 Total de visitas: <span style={{color:C.gold,fontWeight:600}}>{retorno.totalVisitas}x</span></div>}
+              {retorno.totalVisitas !== undefined && <div>💈 Total de visitas: <span style={{color:C.gold,fontWeight:600}}>{retorno.totalVisitas}x</span></div>}
             </div>
           )}
           <p style={{color:C.muted,fontSize:12,marginTop:20,animation:"pulse 1s ease infinite"}}>Carregando serviços…</p>
@@ -612,7 +662,7 @@ export default function App() {
   }
 
   // ════════════════════════════════════════════════════════════════
-  //  STEP: CADASTRO (cliente novo)
+  //  STEP: CADASTRO
   // ════════════════════════════════════════════════════════════════
   if (step === "register") {
     const nomeOk  = cliente.nome.trim().length >= 3
@@ -633,12 +683,10 @@ export default function App() {
           </div>
 
           <div style={{display:"flex",flexDirection:"column",gap:20}}>
-            {/* Nome */}
             <Campo label="Nome completo" value={cliente.nome}
               onChange={v=>setCliente(p=>({...p,nome:v}))}
               placeholder="João da Silva"/>
 
-            {/* Telefone (só leitura) */}
             <div>
               <label style={{display:"block",color:C.sub,fontSize:11,letterSpacing:2,textTransform:"uppercase",marginBottom:10}}>WhatsApp</label>
               <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"14px 16px",fontSize:16,color:C.muted}}>
@@ -646,7 +694,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* Nascimento */}
             <div>
               <label style={{display:"block",color:C.sub,fontSize:11,letterSpacing:2,textTransform:"uppercase",marginBottom:10}}>
                 Data de nascimento
@@ -663,7 +710,6 @@ export default function App() {
               <p style={{color:C.muted,fontSize:11,marginTop:6}}>Formato: DD/MM/AAAA</p>
             </div>
 
-            {/* Consentimento LGPD */}
             <div style={{display:"flex",alignItems:"flex-start",gap:12,padding:"16px",background:C.surface,borderRadius:8,border:`1px solid ${C.border}`}}>
               <input type="checkbox" id="lgpd" checked={concordou} onChange={e=>setConcordou(e.target.checked)}
                 style={{marginTop:3,accentColor:C.gold,width:16,height:16,cursor:"pointer",flexShrink:0}}/>
@@ -834,7 +880,7 @@ export default function App() {
   // ════════════════════════════════════════════════════════════════
   const progNum = PROGRESS[step] || 1
   const voltar  = () => {
-    const prev = { service:"phone", date:"service", time:"date", confirm:"time" }
+    const prev = { service:isNovo?"register":"phone", date:"service", time:"date", confirm:"time" }
     setStep(prev[step] || "hero")
   }
 
@@ -843,7 +889,6 @@ export default function App() {
       <ProgHeader step={progNum}/>
       <main style={{width:"100%",maxWidth:660,padding:"36px 24px 64px",flex:1}}>
 
-        {/* SERVIÇO */}
         {step === "service" && (
           <div>
             <BackBtn onClick={voltar}/>
@@ -869,7 +914,6 @@ export default function App() {
           </div>
         )}
 
-        {/* DATA */}
         {step === "date" && (
           <div>
             <BackBtn onClick={voltar}/>
@@ -877,11 +921,11 @@ export default function App() {
             <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8}}>
               {getProximos30Dias().map((d,i)=>{
                 const sel = dataSel?.toDateString()===d.toDateString()
-                const dom = d.getDay()===0 || d.getDay()===1
+                const folga = d.getDay()===0 || d.getDay()===1
                 return (
-                  <button key={i} className="day-btn anim" disabled={dom}
+                  <button key={i} className="day-btn anim" disabled={folga}
                     onClick={()=>{ setDataSel(d); setStep("time") }}
-                    style={{background:sel?C.goldDim:C.card,border:`1px solid ${sel?C.gold:C.border}`,borderRadius:8,padding:"12px 4px",textAlign:"center",opacity:dom?.3:1,cursor:dom?"not-allowed":"pointer",animationDelay:`${i*.015}s`,transition:"all .15s"}}>
+                    style={{background:sel?C.goldDim:C.card,border:`1px solid ${sel?C.gold:C.border}`,borderRadius:8,padding:"12px 4px",textAlign:"center",opacity:folga?.3:1,cursor:folga?"not-allowed":"pointer",animationDelay:`${i*.015}s`,transition:"all .15s"}}>
                     <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>{DIAS[d.getDay()]}</div>
                     <div style={{fontSize:18,fontWeight:600,color:sel?C.gold:C.text,marginBottom:2}}>{d.getDate()}</div>
                     <div style={{fontSize:10,color:C.sub}}>{MESES[d.getMonth()]}</div>
@@ -892,7 +936,6 @@ export default function App() {
           </div>
         )}
 
-        {/* HORÁRIO */}
         {step === "time" && (
           <div>
             <BackBtn onClick={voltar}/>
@@ -922,7 +965,6 @@ export default function App() {
           </div>
         )}
 
-        {/* CONFIRMAÇÃO */}
         {step === "confirm" && (
           <div>
             <BackBtn onClick={voltar}/>
@@ -966,7 +1008,6 @@ export default function App() {
 
 // ── Sub-componentes ───────────────────────────────────────────────
 function ProgHeader({ step }) {
-  const labels = ["Identif.", "Serviço", "Data", "Horário", "Confirmar"]
   return (
     <header style={{width:"100%",maxWidth:660,padding:"20px 24px 0",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
       <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:20,fontWeight:600,color:C.gold,letterSpacing:1}}>
@@ -1022,48 +1063,27 @@ function CampoNasc({ value, onChange }) {
       style={{width:"100%",background:C.card,border:`1px solid ${focus?C.gold:C.border}`,borderRadius:8,padding:"14px 16px",fontSize:16,color:C.text,transition:"border-color .2s"}}/>
   )
 }
+
 export function PoliticaModal({ aberta, onFechar }) {
   if (!aberta) return null
   return (
     <div onClick={onFechar} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.85)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}}>
       <div onClick={e=>e.stopPropagation()} style={{background:"#111",border:`1px solid #2a2a2a`,borderRadius:12,maxWidth:540,width:"100%",maxHeight:"85vh",overflow:"auto",padding:"32px 28px",position:"relative"}}>
-
         <button onClick={onFechar} style={{position:"absolute",top:16,right:16,color:"#666",fontSize:20,lineHeight:1}}>✕</button>
-
-        <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:24,fontWeight:600,color:"#ede9e3",marginBottom:4}}>
-          Política de Privacidade
-        </div>
+        <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:24,fontWeight:600,color:"#ede9e3",marginBottom:4}}>Política de Privacidade</div>
         <div style={{fontSize:12,color:"#555",marginBottom:24}}>AQUINO | Barbearia & Estética — CNPJ 34.828.065/0001-41</div>
-
         {[
-          {
-            titulo: "1. Dados Coletados",
-            texto: "Coletamos nome completo, número de WhatsApp e data de nascimento, exclusivamente para fins de agendamento e comunicação sobre seus atendimentos."
-          },
-          {
-            titulo: "2. Finalidade",
-            texto: "Seus dados são utilizados para: confirmar agendamentos, enviar lembretes automáticos, avisar sobre o momento ideal de retorno e enviar mensagem de aniversário."
-          },
-          {
-            titulo: "3. Armazenamento e Segurança",
-            texto: "Seus dados são armazenados com segurança na infraestrutura do Google (Google Sheets e Google Calendar), que possui certificação ISO 27001, criptografia em trânsito e em repouso, e conformidade com padrões internacionais de proteção de dados. Não compartilhamos seus dados com terceiros sob nenhuma circunstância."
-          },
-          {
-            titulo: "4. Seus Direitos (LGPD — Lei nº 13.709/2018)",
-            texto: "Você tem direito a: acessar seus dados, corrigir informações incorretas e solicitar a exclusão completa dos seus dados a qualquer momento."
-          },
-          {
-            titulo: "5. Contato do Responsável",
-            texto: "Vinícius Júlio de Aquino\naquino.inbeleza@gmail.com\nR. Carlos Gomes, 256 - Ideal, Ipatinga - MG"
-          },
+          { titulo: "1. Dados Coletados", texto: "Coletamos nome completo, número de WhatsApp e data de nascimento, exclusivamente para fins de agendamento e comunicação sobre seus atendimentos." },
+          { titulo: "2. Finalidade", texto: "Seus dados são utilizados para: confirmar agendamentos, enviar lembretes automáticos, avisar sobre o momento ideal de retorno e enviar mensagem de aniversário." },
+          { titulo: "3. Armazenamento e Segurança", texto: "Seus dados são armazenados com segurança na infraestrutura do Google (Google Sheets e Google Calendar), que possui certificação ISO 27001, criptografia em trânsito e em repouso, e conformidade com padrões internacionais de proteção de dados. Não compartilhamos seus dados com terceiros sob nenhuma circunstância." },
+          { titulo: "4. Seus Direitos (LGPD — Lei nº 13.709/2018)", texto: "Você tem direito a: acessar seus dados, corrigir informações incorretas e solicitar a exclusão completa dos seus dados a qualquer momento." },
+          { titulo: "5. Contato do Responsável", texto: "Vinícius Júlio de Aquino\naquino.inbeleza@gmail.com\nR. Carlos Gomes, 256 - Ideal, Ipatinga - MG" },
         ].map((item,i)=>(
           <div key={i} style={{marginBottom:20}}>
             <div style={{fontWeight:600,color:"#ede9e3",fontSize:14,marginBottom:6}}>{item.titulo}</div>
             <div style={{color:"#888",fontSize:13,lineHeight:1.7,whiteSpace:"pre-line"}}>{item.texto}</div>
           </div>
         ))}
-
-        {/* Selo Google */}
         <div style={{marginTop:24,padding:"14px 16px",background:"#0a0a0a",borderRadius:8,border:`1px solid #1e1e1e`,display:"flex",alignItems:"center",gap:12}}>
           <div style={{fontSize:24}}>🔒</div>
           <div>
@@ -1071,11 +1091,9 @@ export function PoliticaModal({ aberta, onFechar }) {
             <div style={{fontSize:11,color:"#555",lineHeight:1.5}}>Certificação ISO 27001 · Criptografia AES-256 · Conformidade GDPR/LGPD</div>
           </div>
         </div>
-
         <div style={{marginTop:16,fontSize:11,color:"#444",textAlign:"center"}}>
           Última atualização: maio de 2026
         </div>
-
         <button onClick={onFechar}
           style={{width:"100%",marginTop:20,background:"#c9a84c",color:"#000",padding:"13px",borderRadius:8,fontWeight:700,fontSize:13,letterSpacing:2,textTransform:"uppercase",border:"none",cursor:"pointer"}}>
           Entendido ✓
@@ -1084,3 +1102,4 @@ export function PoliticaModal({ aberta, onFechar }) {
     </div>
   )
 }
+
