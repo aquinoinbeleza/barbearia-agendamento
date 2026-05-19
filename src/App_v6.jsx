@@ -6,6 +6,7 @@ import { useState, useEffect, useRef } from "react"
 const GAS_URL = import.meta.env.VITE_GAS_URL
   || "https://script.google.com/macros/s/AKfycbyYk03d8DY8NQTDRNEfb3CSUO0gJOi5Ya-TcYyj9VCj_VEwnCumwoLI15WgXJL1Bvz9_Q/exec"
 const SITE_TOKEN = import.meta.env.VITE_SITE_TOKEN || "aq2025site"
+// ⚠️ ADMIN_SENHA removido — validação agora no GAS, nunca no frontend
 
 const BARBEARIA = {
   nome:      "AQUINO | Barbearia & Estética",
