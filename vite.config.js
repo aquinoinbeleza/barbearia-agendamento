@@ -25,4 +25,3 @@ export default defineConfig({
   // Configure no painel do Vercel: Settings > Environment Variables
   envPrefix: 'VITE_',
 })
-
