@@ -4,11 +4,6 @@ import { useState, useEffect, useCallback, useRef, createContext, useContext } f
 // AQUINO Barbearia & Estética — Painel de Gestão
 // Sistema de agendamento, CRM, fidelidade e financeiro.
 //
-// Configuração: credenciais via variáveis de ambiente (.env.local).
-//   VITE_GAS_URL    → endpoint do backend (Google Apps Script)
-//   VITE_SITE_TOKEN → token de origem entre o site e o backend
-// Sem backend configurado, o painel roda em modo de demonstração.
-//
 // © AQUINO. Todos os direitos reservados.
 // ═══════════════════════════════════════════════════════════════════════════
 
