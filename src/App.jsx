@@ -201,8 +201,55 @@ const DEFAULT_CONFIG = {
   barbeiros: [
     { id: 1, nome: "Vinícius Aquino", ativo: true },
   ],
+  // ── Fidelidade ── tudo editável pelo painel; "ativo:false" oculta do cliente.
+  fidelidade: {
+    ativo: true,                 // liga/desliga o programa inteiro (oculta do cliente)
+    rebaixamentoAtivo: true,     // liga/desliga o rebaixamento por falta
+    niveis: [
+      { id:4, label:"Diamond VIP", icon:"💎", cor:"#7fd8ff", min:20, beneficios:["Agenda prioritária","Bônus 10%","Desconto no combo","Acesso antecipado"] },
+      { id:3, label:"Ouro",        icon:"✦",  cor:"#C18A3D", min:12, beneficios:["Fila VIP","Bônus 5%","Desconto na barba"] },
+      { id:2, label:"Prata",       icon:"◆",  cor:"#9aa0a6", min:6,  beneficios:["Desconto 5%","Bônus mensal"] },
+      { id:1, label:"Bronze",      icon:"○",  cor:"#B0814F", min:0,  beneficios:["Programa básico"] },
+    ],
+    // rebaixamento: a cada `faltas` faltas dentro de `dias` dias, cai 1 nível
+    rebaixamento: { faltas: 1, dias: 15 },
+    recompensas: [
+      { id:1, marco:"5ª visita",  descricao:"Sobrancelha grátis", icon:"🎁", ativo:true },
+      { id:2, marco:"10ª visita", descricao:"20% off no Combo",    icon:"✦",  ativo:true },
+      { id:3, marco:"20ª visita", descricao:"Corte cortesia",      icon:"👑", ativo:true },
+    ],
+  },
 };
 const configStore = makeStore("config", DEFAULT_CONFIG);
+
+// Helpers de fidelidade — usados pelo painel E pela área do cliente (fonte única)
+const getFidelidade = () => {
+  const f = (configStore.get() || {}).fidelidade || DEFAULT_CONFIG.fidelidade;
+  // retrocompat: se faltar algum campo (config salva antiga), completa com o default
+  return { ...DEFAULT_CONFIG.fidelidade, ...f,
+    niveis: (f.niveis && f.niveis.length) ? f.niveis : DEFAULT_CONFIG.fidelidade.niveis,
+    recompensas: (f.recompensas && f.recompensas.length) ? f.recompensas : DEFAULT_CONFIG.fidelidade.recompensas,
+    rebaixamento: { ...DEFAULT_CONFIG.fidelidade.rebaixamento, ...(f.rebaixamento||{}) },
+  };
+};
+// nível do cliente CONFORME os mínimos editados no painel (não mais "chumbado")
+const nivelPorVisitas = (visitas) => {
+  const niveis = [...getFidelidade().niveis].sort((a,b)=>b.min-a.min); // maior min primeiro
+  return niveis.find(n => (visitas||0) >= n.min) || niveis[niveis.length-1];
+};
+// rebaixamento real: conta quantos níveis cair pelas faltas recentes
+const aplicarRebaixamento = (nivelLabel, faltasRecentes) => {
+  const f = getFidelidade();
+  if (!f.rebaixamentoAtivo) return nivelLabel;
+  const regra = f.rebaixamento || { faltas:1, dias:15 };
+  if (!regra.faltas || (faltasRecentes||0) < regra.faltas) return nivelLabel;
+  const degraus = Math.floor((faltasRecentes||0) / regra.faltas);
+  const ordenados = [...f.niveis].sort((a,b)=>a.min-b.min); // do menor pro maior
+  const idx = ordenados.findIndex(n => n.label === nivelLabel);
+  if (idx === -1) return nivelLabel;
+  const novoIdx = Math.max(0, idx - degraus);
+  return ordenados[novoIdx].label;
+};
 
 // hook simples para assinar o store em componentes
 const useStore = (store) => {
@@ -292,8 +339,11 @@ const BE = {
     return Math.max(0, Math.min(10, s));
   },
   calcNivel(v) {
-    if (v >= 20) return "VIP"; if (v >= 12) return "Ouro";
-    if (v >= 6)  return "Prata"; return "Bronze";
+    // usa os mínimos editáveis do painel (fonte única), não valores chumbados
+    try { return nivelPorVisitas(v).label; } catch(e) {
+      if (v >= 20) return "Diamond VIP"; if (v >= 12) return "Ouro";
+      if (v >= 6)  return "Prata"; return "Bronze";
+    }
   },
   prioridade(score) {
     if (score >= 8) return { label:"Confiável", color:A.green };
@@ -2332,17 +2382,56 @@ const CRMPage = () => {
 
 // ─── LOYALTY PAGE ─────────────────────────────────────────────────────────
 const LoyaltyPage = () => {
-  const niveis=[
-    {label:"VIP",icon:"💎",color:A.cyan,min:20,beneficios:["Agenda prioritária","Bônus 10%","Desconto combo","Acesso antecipado"]},
-    {label:"Ouro",icon:"✦",color:A.amber,min:12,beneficios:["Fila VIP","Bônus 5%","Desconto barba"]},
-    {label:"Prata",icon:"◆",color:A.textSec,min:6,beneficios:["Desconto 5%","Bônus mensal"]},
-    {label:"Bronze",icon:"○",color:"#B0814F",min:0,beneficios:["Programa básico"]},
-  ];
-  const topClientes=DB.clientes.sort((a,b)=>b.gasto-a.gasto).slice(0,5);
+  const toast = useToast();
+  useStore(configStore);                    // re-renderiza quando a config muda
+  const [aba, setAba] = useState("niveis");
+  const fid = getFidelidade();              // fonte única (mesma do cliente)
+
+  // atalho para salvar a fidelidade no store persistente (cai no cliente na hora)
+  const setFid = (patch) => configStore.set(c => ({ ...c, fidelidade: { ...getFidelidade(), ...patch } }));
+
+  const niveisConfig = fid.niveis;
+  const recompensas  = fid.recompensas;
+  const [editNivel, setEditNivel] = useState(null);
+  const [editRecomp, setEditRecomp] = useState(null);
+  const topClientes = DB.clientes.slice().sort((a,b)=>b.gasto-a.gasto).slice(0,5);
+
+  // liga/desliga o programa inteiro (oculta tudo do cliente)
+  const togglePrograma = () => {
+    setFid({ ativo: !fid.ativo });
+    toast(fid.ativo ? "Fidelidade DESATIVADA (oculta do cliente)" : "Fidelidade ATIVADA (visível ao cliente)", fid.ativo ? A.amber : A.green, fid.ativo ? "lock" : "check");
+  };
+  const toggleRebaixamento = () => {
+    setFid({ rebaixamentoAtivo: !fid.rebaixamentoAtivo });
+    toast(fid.rebaixamentoAtivo ? "Rebaixamento por falta desligado" : "Rebaixamento por falta ligado", A.cyan, "check");
+  };
+
+  const salvarNivel = (idx, campo, valor) => {
+    const niveis = niveisConfig.map((n,i) => i===idx ? { ...n, [campo]: campo==="min" ? Number(valor) : valor } : n);
+    setFid({ niveis });
+  };
+  const salvarBeneficios = (idx, textoLinhas) => {
+    const arr = String(textoLinhas).split("\n").map(s=>s.trim()).filter(Boolean);
+    const niveis = niveisConfig.map((n,i)=> i===idx ? { ...n, beneficios: arr } : n);
+    setFid({ niveis });
+  };
+  const salvarRebaixRegra = (campo, valor) => {
+    setFid({ rebaixamento: { ...fid.rebaixamento, [campo]: Number(valor) } });
+  };
+
+  const toggleRecompensa = (id) => {
+    const r = recompensas.find(r=>r.id===id);
+    setFid({ recompensas: recompensas.map(x => x.id===id ? { ...x, ativo:!x.ativo } : x) });
+    toast(r?.ativo ? "Recompensa bloqueada (some do cliente)" : "Recompensa ativada", r?.ativo ? A.amber : A.green, r?.ativo ? "lock" : "check");
+  };
+  const salvarRecompensa = (id, campo, valor) => {
+    setFid({ recompensas: recompensas.map(r => r.id===id ? { ...r, [campo]:valor } : r) });
+  };
+
   return (
     <div style={{display:"flex",flexDirection:"column",gap:S.lg}}>
       <div style={{display:"flex",gap:S.md}}>
-        {[{l:"VIPs ativos",v:DB.clientes.filter(c=>c.nivel==="VIP").length,c:A.cyan},
+        {[{l:"Diamond VIP",v:DB.clientes.filter(c=>c.nivel==="Diamond VIP").length,c:A.cyan},
           {l:"Ouro",v:DB.clientes.filter(c=>c.nivel==="Ouro").length,c:A.amber},
           {l:"Prata",v:DB.clientes.filter(c=>c.nivel==="Prata").length,c:A.textSec},
           {l:"Bronze",v:DB.clientes.filter(c=>c.nivel==="Bronze").length,c:"#B0814F"}].map((st,i)=>(
@@ -2352,31 +2441,107 @@ const LoyaltyPage = () => {
           </Card>
         ))}
       </div>
-      <div style={{display:"flex",gap:S.md}}>
-        <div style={{flex:1}}>
-          <Card>
-            <SectionHead title="Níveis de Fidelidade" sub="Calculado por visitas reais · Motor v2"/>
+
+      {/* CONTROLE MESTRE — liga/desliga o programa + regra de rebaixamento */}
+      <Card>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:S.md}}>
+          <div style={{display:"flex",alignItems:"center",gap:12}}>
+            <div onClick={togglePrograma} style={{cursor:"pointer",width:46,height:26,borderRadius:R.pill,position:"relative",
+              background:fid.ativo?A.green:A.border,transition:"all .2s",flexShrink:0}}>
+              <div style={{position:"absolute",top:3,left:fid.ativo?23:3,width:20,height:20,borderRadius:"50%",background:"#fff",transition:"all .2s"}}/>
+            </div>
+            <div>
+              <div style={{color:A.textPri,fontWeight:700,fontSize:13}}>Programa de Fidelidade {fid.ativo?"ATIVO":"DESATIVADO"}</div>
+              <div style={{color:A.textMuted,fontSize:10}}>{fid.ativo?"Níveis e recompensas aparecem para o cliente":"Tudo oculto do cliente — nada de fidelidade aparece no app"}</div>
+            </div>
+          </div>
+        </div>
+        {fid.ativo && (
+          <div style={{marginTop:S.md,paddingTop:S.md,borderTop:`1px solid ${A.border}`,display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
+            <div onClick={toggleRebaixamento} style={{cursor:"pointer",width:40,height:22,borderRadius:R.pill,position:"relative",
+              background:fid.rebaixamentoAtivo?A.cyan:A.border,transition:"all .2s",flexShrink:0}}>
+              <div style={{position:"absolute",top:2,left:fid.rebaixamentoAtivo?20:2,width:18,height:18,borderRadius:"50%",background:"#fff",transition:"all .2s"}}/>
+            </div>
+            <div style={{color:A.textPri,fontSize:12,fontWeight:600}}>Rebaixar por falta</div>
+            {fid.rebaixamentoAtivo && (
+              <div style={{display:"flex",alignItems:"center",gap:8,color:A.textMuted,fontSize:11}}>
+                <span>A cada</span>
+                <input type="number" min="1" value={fid.rebaixamento.faltas} onChange={e=>salvarRebaixRegra("faltas",e.target.value)}
+                  style={{width:52,background:A.bg3,border:`1px solid ${A.border}`,borderRadius:R.sm,padding:"4px 8px",color:A.textPri,fontSize:12,fontFamily:SHARED.fontMono}}/>
+                <span>falta(s) em</span>
+                <input type="number" min="1" value={fid.rebaixamento.dias} onChange={e=>salvarRebaixRegra("dias",e.target.value)}
+                  style={{width:52,background:A.bg3,border:`1px solid ${A.border}`,borderRadius:R.sm,padding:"4px 8px",color:A.textPri,fontSize:12,fontFamily:SHARED.fontMono}}/>
+                <span>dias → cai 1 nível</span>
+              </div>
+            )}
+          </div>
+        )}
+      </Card>
+
+      {/* Abas */}
+      <div style={{display:"flex",gap:6}}>
+        {[["niveis","🏆 Níveis"],["recompensas","🎁 Recompensas"],["top","⭐ Top Clientes"]].map(([id,label])=>(
+          <button key={id} onClick={()=>setAba(id)} style={{
+            padding:"7px 16px",borderRadius:R.md,border:`1px solid ${aba===id?A.amber:A.border}`,
+            background:aba===id?`${A.amber}15`:A.bg3,color:aba===id?A.amber:A.textSec,
+            fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:SHARED.fontSans}}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* ABA NÍVEIS */}
+      {aba==="niveis" && (
+        <div style={{display:"flex",gap:S.md}}>
+          <Card style={{flex:1}}>
+            <SectionHead title="Configuração de Níveis" sub="Edite visitas mínimas, benefícios e penalidades por falta"/>
             <div style={{display:"flex",flexDirection:"column",gap:S.sm}}>
-              {niveis.map((n,i)=>{
+              {niveisConfig.map((n,i)=>{
                 const count=DB.clientes.filter(c=>c.nivel===n.label).length;
+                const isEdit = editNivel===i;
                 return (
-                  <div key={i} style={{background:A.bg3,border:`1px solid ${n.color}20`,borderRadius:R.lg,padding:"13px 15px"}}>
+                  <div key={i} style={{background:A.bg3,border:`1px solid ${n.cor}20`,borderRadius:R.lg,padding:"13px 15px"}}>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
                       <div style={{display:"flex",alignItems:"center",gap:10}}>
-                        <div style={{width:36,height:36,borderRadius:R.md,background:`${n.color}15`,border:`1px solid ${n.color}30`,
-                          display:"flex",alignItems:"center",justifyContent:"center",color:n.color,fontSize:16}}>{n.icon}</div>
+                        <div style={{width:36,height:36,borderRadius:R.md,background:`${n.cor}15`,border:`1px solid ${n.cor}30`,
+                          display:"flex",alignItems:"center",justifyContent:"center",color:n.cor,fontSize:16}}>{n.icon}</div>
                         <div>
-                          <div style={{color:n.color,fontWeight:700,fontSize:13}}>{n.label}</div>
-                          <div style={{color:A.textMuted,fontSize:9}}>A partir de {n.min} visitas</div>
+                          <div style={{color:n.cor,fontWeight:700,fontSize:13}}>{n.label}</div>
+                          {!isEdit && <div style={{color:A.textMuted,fontSize:9}}>A partir de {n.min} visitas</div>}
                         </div>
                       </div>
-                      <div style={{textAlign:"right"}}>
-                        <div style={{color:A.textPri,fontSize:18,fontWeight:800,fontFamily:SHARED.fontMono}}>{count}</div>
-                        <div style={{color:A.textMuted,fontSize:9}}>clientes</div>
+                      <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                        <div style={{textAlign:"right",marginRight:8}}>
+                          <div style={{color:A.textPri,fontSize:18,fontWeight:800,fontFamily:SHARED.fontMono}}>{count}</div>
+                          <div style={{color:A.textMuted,fontSize:9}}>clientes</div>
+                        </div>
+                        <button onClick={()=>setEditNivel(isEdit?null:i)} style={{
+                          padding:"4px 10px",borderRadius:R.sm,border:`1px solid ${isEdit?A.green:A.border}`,
+                          background:isEdit?`${A.green}15`:A.bg2,color:isEdit?A.green:A.textSec,
+                          fontSize:10,cursor:"pointer",fontFamily:SHARED.fontSans}}>
+                          {isEdit?"✓ Salvar":"✏️ Editar"}
+                        </button>
                       </div>
                     </div>
+                    {isEdit && (
+                      <div style={{background:A.bg2,borderRadius:R.md,padding:"12px",marginBottom:10,display:"flex",gap:12,flexWrap:"wrap"}}>
+                        <div>
+                          <div style={{color:A.textMuted,fontSize:9,marginBottom:4}}>Visitas mínimas</div>
+                          <input type="number" value={n.min} onChange={e=>salvarNivel(i,"min",e.target.value)}
+                            style={{width:70,background:A.bg3,border:`1px solid ${A.border}`,borderRadius:R.sm,
+                              padding:"5px 8px",color:A.textPri,fontSize:12,fontFamily:SHARED.fontMono}}/>
+                        </div>
+                        <div style={{flex:1,minWidth:120}}>
+                          <div style={{color:A.textMuted,fontSize:9,marginBottom:4}}>Benefícios (separados por vírgula)</div>
+                          <input type="text" value={n.beneficios.join(", ")}
+                            onChange={e=>salvarNivel(i,"beneficios",e.target.value.split(",").map(b=>b.trim()).filter(Boolean))}
+                            style={{width:"100%",boxSizing:"border-box",background:A.bg3,border:`1px solid ${A.border}`,borderRadius:R.sm,
+                              padding:"5px 8px",color:A.textPri,fontSize:11,fontFamily:SHARED.fontSans}}/>
+                        </div>
+                      </div>
+                    )}
                     <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                      {n.beneficios.map((b,bi)=><Badge key={bi} color={n.color} size="sm">{b}</Badge>)}
+                      {n.beneficios.map((b,bi)=><Badge key={bi} color={n.cor} size="sm">{b}</Badge>)}
                     </div>
                   </div>
                 );
@@ -2384,26 +2549,84 @@ const LoyaltyPage = () => {
             </div>
           </Card>
         </div>
-        <div style={{width:300,flexShrink:0}}>
-          <Card>
-            <SectionHead title="Top Clientes" sub="Por faturamento e lealdade"/>
-            {topClientes.map((c,i)=>(
-              <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 0",borderBottom:i<topClientes.length-1?`1px solid ${A.border}`:"none"}}>
-                <div style={{color:A.textMuted,fontSize:11,fontWeight:800,width:18,textAlign:"center",fontFamily:SHARED.fontMono}}>#{i+1}</div>
-                <Avatar nome={c.nome} size={32} color={NIVEL_COLOR[c.nivel]??A.textSec}/>
-                <div style={{flex:1,minWidth:0}}>
-                  <div style={{color:A.textPri,fontSize:12,fontWeight:600}}>{c.nome}</div>
-                  <div style={{color:A.textSec,fontSize:9}}>{c.visitas} visitas · {c.diasSemVisitar}d atrás</div>
+      )}
+
+      {/* ABA RECOMPENSAS */}
+      {aba==="recompensas" && (
+        <Card>
+          <SectionHead title="Recompensas por Marco" sub="Configure, bloqueie ou edite cada recompensa · Visível na área do cliente"/>
+          <div style={{display:"flex",flexDirection:"column",gap:S.sm}}>
+            {recompensas.map((r,i)=>{
+              const isEdit = editRecomp===r.id;
+              return (
+                <div key={r.id} style={{background:A.bg3,border:`1px solid ${r.ativo?A.border:A.red+"30"}`,borderRadius:R.lg,padding:"13px 15px",opacity:r.ativo?1:0.6}}>
+                  <div style={{display:"flex",alignItems:"center",gap:12}}>
+                    <div style={{fontSize:22}}>{r.icon}</div>
+                    <div style={{flex:1}}>
+                      {isEdit ? (
+                        <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+                          <input value={r.marco} onChange={e=>salvarRecompensa(r.id,"marco",e.target.value)}
+                            placeholder="Marco (ex: 5ª visita)"
+                            style={{width:100,background:A.bg2,border:`1px solid ${A.border}`,borderRadius:R.sm,padding:"4px 8px",color:A.textPri,fontSize:11,fontFamily:SHARED.fontSans}}/>
+                          <input value={r.descricao} onChange={e=>salvarRecompensa(r.id,"descricao",e.target.value)}
+                            placeholder="Descrição"
+                            style={{flex:1,minWidth:120,background:A.bg2,border:`1px solid ${A.border}`,borderRadius:R.sm,padding:"4px 8px",color:A.textPri,fontSize:11,fontFamily:SHARED.fontSans}}/>
+                          <input value={r.icon} onChange={e=>salvarRecompensa(r.id,"icon",e.target.value)}
+                            placeholder="Ícone"
+                            style={{width:50,background:A.bg2,border:`1px solid ${A.border}`,borderRadius:R.sm,padding:"4px 8px",color:A.textPri,fontSize:14,textAlign:"center"}}/>
+                        </div>
+                      ) : (
+                        <>
+                          <div style={{color:A.textPri,fontSize:12,fontWeight:600}}>{r.descricao}</div>
+                          <div style={{color:A.textMuted,fontSize:9,marginTop:2}}>{r.marco}</div>
+                        </>
+                      )}
+                    </div>
+                    <div style={{display:"flex",gap:6}}>
+                      <button onClick={()=>setEditRecomp(isEdit?null:r.id)} style={{
+                        padding:"4px 10px",borderRadius:R.sm,border:`1px solid ${isEdit?A.green:A.border}`,
+                        background:isEdit?`${A.green}15`:A.bg2,color:isEdit?A.green:A.textSec,
+                        fontSize:10,cursor:"pointer",fontFamily:SHARED.fontSans}}>
+                        {isEdit?"✓ Salvar":"✏️ Editar"}
+                      </button>
+                      <button onClick={()=>toggleRecompensa(r.id)} style={{
+                        padding:"4px 10px",borderRadius:R.sm,
+                        border:`1px solid ${r.ativo?A.red+"60":A.green+"60"}`,
+                        background:r.ativo?`${A.red}10`:`${A.green}10`,
+                        color:r.ativo?A.red:A.green,
+                        fontSize:10,cursor:"pointer",fontFamily:SHARED.fontSans}}>
+                        {r.ativo?"🔒 Bloquear":"🔓 Ativar"}
+                      </button>
+                    </div>
+                  </div>
+                  {!r.ativo && <div style={{color:A.red,fontSize:9,marginTop:6}}>⚠ Bloqueada — não aparece para o cliente</div>}
                 </div>
-                <div style={{textAlign:"right"}}>
-                  <div style={{color:A.green,fontSize:11,fontFamily:SHARED.fontMono}}>R$ {c.gasto}</div>
-                  <Badge color={NIVEL_COLOR[c.nivel]??A.textSec}>{c.nivel}</Badge>
-                </div>
+              );
+            })}
+          </div>
+        </Card>
+      )}
+
+      {/* ABA TOP CLIENTES */}
+      {aba==="top" && (
+        <Card>
+          <SectionHead title="Top Clientes" sub="Por faturamento e lealdade"/>
+          {topClientes.map((c,i)=>(
+            <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 0",borderBottom:i<topClientes.length-1?`1px solid ${A.border}`:"none"}}>
+              <div style={{color:A.textMuted,fontSize:11,fontWeight:800,width:18,textAlign:"center",fontFamily:SHARED.fontMono}}>#{i+1}</div>
+              <Avatar nome={c.nome} size={32} color={NIVEL_COLOR[c.nivel]??A.textSec}/>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{color:A.textPri,fontSize:12,fontWeight:600}}>{c.nome}</div>
+                <div style={{color:A.textSec,fontSize:9}}>{c.visitas} visitas · {c.diasSemVisitar}d atrás</div>
               </div>
-            ))}
-          </Card>
-        </div>
-      </div>
+              <div style={{textAlign:"right"}}>
+                <div style={{color:A.green,fontSize:11,fontFamily:SHARED.fontMono}}>R$ {c.gasto}</div>
+                <Badge color={NIVEL_COLOR[c.nivel]??A.textSec}>{c.nivel}</Badge>
+              </div>
+            </div>
+          ))}
+        </Card>
+      )}
     </div>
   );
 };
@@ -3395,10 +3618,7 @@ const MobileHistorico = ({ setScreen }) => {
             <div style={{color:C.muted,fontSize:8,textTransform:"uppercase"}}>Visitas</div>
             <div style={{color:C.gold,fontSize:18,fontWeight:800}}>{visitas.length}</div>
           </div>
-          <div style={{flex:1,background:C.bg2,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px"}}>
-            <div style={{color:C.muted,fontSize:8,textTransform:"uppercase"}}>Total gasto</div>
-            <div style={{color:C.white,fontSize:18,fontWeight:800}}>R$ {total}</div>
-          </div>
+
         </div>
         <div style={{display:"flex",flexDirection:"column",gap:6}}>
           {visitas.map((v,i)=>(
@@ -3407,7 +3627,7 @@ const MobileHistorico = ({ setScreen }) => {
                 <div style={{color:C.white,fontSize:11,fontWeight:600}}>{v.s}</div>
                 <div style={{color:C.muted,fontSize:8.5,marginTop:2}}>{v.d} · {v.prof}</div>
               </div>
-              <span style={{color:C.gold,fontSize:11,fontWeight:700}}>R$ {v.v}</span>
+
             </div>
           ))}
         </div>
@@ -3447,45 +3667,80 @@ const MobilePerfil = ({ setScreen }) => (
 );
 
 const MobileFidelidade = ({ setScreen }) => {
-  const niveis=[{n:"Bronze",v:0,c:"#B0814F"},{n:"Prata",v:6,c:"#9aa"},{n:"Ouro",v:12,c:C.gold},{n:"Diamond VIP",v:20,c:"#7fd8ff"}];
+  useStore(configStore);
+  const fid = getFidelidade();
+  // Programa desligado → não mostra nada de fidelidade ao cliente
+  if (!fid.ativo) {
+    return (
+      <div style={{background:C.bg0,height:"100%",overflowY:"auto",fontFamily:SHARED.fontClient}}>
+        <div style={{padding:"36px 14px 12px",background:C.bg1,borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:10}}>
+          <div onClick={()=>setScreen(0)} style={{cursor:"pointer",color:C.gold,fontSize:16}}>‹</div>
+          <div style={{color:C.white,fontWeight:700,fontSize:14}}>Fidelidade</div>
+        </div>
+        <div style={{padding:"40px 20px",textAlign:"center",color:C.muted,fontSize:12}}>
+          Programa de fidelidade indisponível no momento.
+        </div>
+      </div>
+    );
+  }
+  const visitasDemo = 8; // no app real virá do cadastro do cliente
+  const niveisAsc = [...fid.niveis].sort((a,b)=>a.min-b.min);
+  const atual = nivelPorVisitas(visitasDemo);
+  const idxAtual = niveisAsc.findIndex(n=>n.label===atual.label);
+  const prox = niveisAsc[idxAtual+1];
+  const faltam = prox ? Math.max(0, prox.min - visitasDemo) : 0;
+  const pct = prox ? Math.min(100, Math.round((visitasDemo/prox.min)*100)) : 100;
+  const recompensasVisiveis = fid.recompensas.filter(r=>r.ativo);
   return (
     <div style={{background:C.bg0,height:"100%",overflowY:"auto",fontFamily:SHARED.fontClient}}>
       <div style={{padding:"36px 14px 12px",background:C.bg1,borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:10}}>
         <div onClick={()=>setScreen(0)} style={{cursor:"pointer",color:C.gold,fontSize:16}}>‹</div>
         <div>
           <div style={{color:C.muted,fontSize:8,letterSpacing:"0.1em",textTransform:"uppercase"}}>Fidelidade</div>
-          <div style={{color:C.white,fontWeight:700,fontSize:14}}>Seus pontos</div>
+          <div style={{color:C.white,fontWeight:700,fontSize:14}}>Seu nível</div>
         </div>
       </div>
       <div style={{padding:"14px"}}>
         <div style={{background:`linear-gradient(135deg, #161006, ${C.bg2})`,border:`1px solid ${C.gold}25`,borderRadius:14,padding:"16px",marginBottom:14,textAlign:"center"}}>
           <div style={{color:C.gold,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:4}}>Nível atual</div>
-          <div style={{color:C.white,fontWeight:800,fontSize:20}}>✦ Ouro</div>
-          <div style={{margin:"12px 0 6px"}}><MiniBar pct={65} color={C.gold} height={5}/></div>
-          <div style={{color:C.muted,fontSize:9}}>7 visitas para Diamond VIP</div>
+          <div style={{color:C.white,fontWeight:800,fontSize:20}}>{atual.icon} {atual.label}</div>
+          {prox && <>
+            <div style={{margin:"12px 0 6px"}}><MiniBar pct={pct} color={C.gold} height={5}/></div>
+            <div style={{color:C.muted,fontSize:9}}>{faltam} {faltam===1?"visita":"visitas"} para {prox.label}</div>
+          </>}
         </div>
+        {/* Benefícios do nível atual */}
+        {atual.beneficios?.length>0 && <>
+          <div style={{color:C.muted,fontSize:8,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:8}}>Seus benefícios</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:14}}>
+            {atual.beneficios.map((b,i)=>(
+              <span key={i} style={{background:`${C.gold}12`,border:`1px solid ${C.gold}30`,color:C.gold,borderRadius:8,padding:"5px 10px",fontSize:10,fontWeight:600}}>{b}</span>
+            ))}
+          </div>
+        </>}
         <div style={{color:C.muted,fontSize:8,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:8}}>Trilha de níveis</div>
         <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:14}}>
-          {niveis.map((nv,i)=>(
-            <div key={i} style={{background:C.bg2,border:`1px solid ${nv.n==="Ouro"?nv.c+"55":C.border}`,borderRadius:10,padding:"10px 12px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          {[...fid.niveis].sort((a,b)=>a.min-b.min).map((nv,i)=>(
+            <div key={i} style={{background:C.bg2,border:`1px solid ${nv.label===atual.label?nv.cor+"55":C.border}`,borderRadius:10,padding:"10px 12px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
               <div style={{display:"flex",alignItems:"center",gap:8}}>
-                <div style={{width:8,height:8,borderRadius:"50%",background:nv.c}}/>
-                <span style={{color:C.white,fontSize:11,fontWeight:600}}>{nv.n}</span>
+                <div style={{width:8,height:8,borderRadius:"50%",background:nv.cor}}/>
+                <span style={{color:C.white,fontSize:11,fontWeight:600}}>{nv.icon} {nv.label}</span>
               </div>
-              <span style={{color:C.muted,fontSize:9}}>{nv.v}+ visitas</span>
+              <span style={{color:C.muted,fontSize:9}}>{nv.min}+ visitas</span>
             </div>
           ))}
         </div>
-        <div style={{color:C.muted,fontSize:8,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:8}}>Recompensas</div>
-        <div style={{display:"flex",flexDirection:"column",gap:6}}>
-          {[["5ª visita","Sobrancelha grátis","🎁"],["10ª visita","20% off no Combo","✦"],["20ª visita","Corte cortesia","👑"]].map(([m,r,ic],i)=>(
-            <div key={i} style={{background:C.bg2,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 12px",display:"flex",alignItems:"center",gap:10}}>
-              <div style={{fontSize:16}}>{ic}</div>
-              <div style={{flex:1}}><div style={{color:C.white,fontSize:11,fontWeight:600}}>{r}</div><div style={{color:C.muted,fontSize:8.5}}>{m}</div></div>
-              <span style={{color:i===0?C.gold:C.muted,fontSize:9,fontWeight:600}}>{i===0?"Disponível":"Bloqueado"}</span>
-            </div>
-          ))}
-        </div>
+        {recompensasVisiveis.length>0 && <>
+          <div style={{color:C.muted,fontSize:8,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:8}}>Recompensas</div>
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {recompensasVisiveis.map((r,i)=>(
+              <div key={r.id} style={{background:C.bg2,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 12px",display:"flex",alignItems:"center",gap:10}}>
+                <div style={{fontSize:16}}>{r.icon}</div>
+                <div style={{flex:1}}><div style={{color:C.white,fontSize:11,fontWeight:600}}>{r.descricao}</div><div style={{color:C.muted,fontSize:8.5}}>{r.marco}</div></div>
+              </div>
+            ))}
+          </div>
+        </>}
       </div>
     </div>
   );
@@ -3774,7 +4029,7 @@ function AppInner() {
           display:"flex", justifyContent:"space-between", alignItems:"center", flexShrink:0,
         }}>
           <span style={{color:A.textMuted,fontSize:8.5}}>
-            AQUINO SaaS v9.1 · 100%+ · Onboarding 1º acesso · ConfigPage · Export CSV/PDF real · API GAS (VITE_GAS_URL+SITE_TOKEN · +ping/reagendar/lembrete/sinal) · Persistência real · Mobile 6 telas · BE v2 · IPE
+            AQUINO SaaS v9.3 · Painel admin + Portal do cliente (/agendar) · Barbeiros · Fidelização editável · ConfigPage · Export CSV/PDF · API GAS · Persistência real · BE v2 · IPE
           </span>
           <div style={{display:"flex",gap:14}}>
             {[
@@ -3803,4 +4058,5 @@ export default function App() {
     </ToastProvider>
   );
 }
+
 
