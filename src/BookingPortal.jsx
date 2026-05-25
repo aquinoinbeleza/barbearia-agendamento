@@ -245,22 +245,35 @@ const Bottom = ({ children }) => {
   );
 };
 
+// ícones de linha (monocromáticos, herdam a cor do pai) — visual premium
+const Icon = ({ name, size=20, stroke=1.8 }) => {
+  const c = { width:size, height:size, viewBox:"0 0 24 24", fill:"none", stroke:"currentColor", strokeWidth:stroke, strokeLinecap:"round", strokeLinejoin:"round" };
+  switch (name) {
+    case "home":     return <svg {...c}><path d="M4 11l8-7 8 7"/><path d="M6 10v9h12v-9"/></svg>;
+    case "calendar": return <svg {...c}><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 9.5h16M8 3v4M16 3v4"/></svg>;
+    case "clock":    return <svg {...c}><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg>;
+    case "user":     return <svg {...c}><circle cx="12" cy="9" r="3.4"/><path d="M5.5 20c0-3.6 3-5.6 6.5-5.6s6.5 2 6.5 5.6"/></svg>;
+    case "scissors": return <svg {...c}><circle cx="6.4" cy="6.4" r="2.2"/><circle cx="6.4" cy="17.6" r="2.2"/><path d="M8.3 7.7 19 17.4M8.3 16.3 19 6.6"/></svg>;
+    default: return null;
+  }
+};
+
 // barra de navegação inferior (área do cliente)
 const BottomNav = ({ ativo, onNav }) => {
   const T = useT();
   const tabs = [
-    { id:HOME,   ic:"⌂",  label:"Início"    },
-    { id:1,      ic:"📅", label:"Agendar"   },
-    { id:HIST,   ic:"📋", label:"Histórico" },
-    { id:PERFIL, ic:"👤", label:"Perfil"    },
+    { id:HOME,   icon:"home",     label:"Início"    },
+    { id:1,      icon:"calendar", label:"Agendar"   },
+    { id:HIST,   icon:"clock",    label:"Histórico" },
+    { id:PERFIL, icon:"user",     label:"Perfil"    },
   ];
   return (
-    <div style={{position:"sticky",bottom:0,marginTop:22,background:T.card,borderTop:`1px solid ${T.line}`,display:"flex",justifyContent:"space-around",padding:"9px 0 11px"}}>
+    <div style={{position:"sticky",bottom:0,marginTop:22,background:T.card,borderTop:`1px solid ${T.line}`,display:"flex",justifyContent:"space-around",padding:"10px 0 12px"}}>
       {tabs.map(t=>{
         const on = ativo===t.id;
         return (
-          <button key={t.id} onClick={()=>onNav(t.id)} className="aq-btn" style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,color:on?T.brass:T.muted,fontFamily:T.sans,padding:"2px 14px"}}>
-            <span style={{fontSize:19,lineHeight:1}}>{t.ic}</span>
+          <button key={t.id} onClick={()=>onNav(t.id)} className="aq-btn" style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:4,color:on?T.brass:T.muted,fontFamily:T.sans,padding:"2px 14px"}}>
+            <Icon name={t.icon} size={21} stroke={on?2:1.7} />
             <span style={{fontSize:10,fontWeight:on?700:500}}>{t.label}</span>
           </button>
         );
@@ -540,12 +553,6 @@ function Portal() {
   // PASSO 7 — ÁREA DO CLIENTE (cliente conhecido)
   if (step===HOME) {
     const fid = fidelidade(visitasSeguras(clienteExistente, meusAgs.length));
-    const acoes = [
-      { ic:"📅", label:"Agendar",    on:()=>irPara(1) },
-      { ic:"✂", label:"Serviços",   on:()=>irPara(1) },
-      { ic:"★", label:"Fidelidade", on:()=>setStep(PERFIL) },
-      { ic:"📋", label:"Histórico",  on:()=>setStep(HIST) },
-    ];
     return (
       <Shell onToggleTema={onToggleTema}>
         <div style={{padding:"56px 22px 4px"}}>
@@ -573,7 +580,7 @@ function Portal() {
                   <div style={{color:T.ink,fontWeight:700,fontSize:17}}>{proximoAg.servico}</div>
                   <div style={{color:T.muted,fontSize:12.5,marginTop:4}}>{labelData(proximoAg._d)} · {proximoAg._h}</div>
                 </div>
-                <div style={{width:44,height:44,borderRadius:12,background:T.brassTint,border:`1px solid ${T.brassLine}`,display:"flex",alignItems:"center",justifyContent:"center",color:T.brass,fontSize:21}}>✂</div>
+                <div style={{width:44,height:44,borderRadius:12,background:T.brassTint,border:`1px solid ${T.brassLine}`,display:"flex",alignItems:"center",justifyContent:"center",color:T.brass}}><Icon name="scissors" size={22}/></div>
               </div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
                 <button onClick={()=>iniciarReagendar(proximoAg)} className="aq-btn" style={{background:T.brass,border:"none",borderRadius:10,padding:"11px",cursor:"pointer",color:"#0C0C0C",fontWeight:700,fontSize:13,fontFamily:T.sans}}>Reagendar</button>
@@ -582,7 +589,7 @@ function Portal() {
             </div>
           ) : (
             <div style={{background:T.card,border:`1px solid ${T.line}`,borderRadius:16,padding:"20px 16px",textAlign:"center"}}>
-              <div style={{fontSize:26,marginBottom:6}}>📅</div>
+              <div style={{color:T.brass,marginBottom:8,display:"flex",justifyContent:"center"}}><Icon name="calendar" size={30} stroke={1.6}/></div>
               <div style={{color:T.ink,fontWeight:700,fontSize:15}}>Nenhum horário marcado</div>
               <div style={{color:T.muted,fontSize:13,margin:"4px 0 12px"}}>Que tal agendar agora?</div>
               <button onClick={()=>{ setReagendandoId(null); setServSel(null); setStep(1); }} className="aq-btn" style={{background:`linear-gradient(150deg,${T.brass},${T.brassDeep})`,border:"none",borderRadius:11,padding:"12px 22px",cursor:"pointer",color:"#fff",fontWeight:700,fontSize:14,fontFamily:T.sans}}>Agendar horário</button>
@@ -604,16 +611,6 @@ function Portal() {
               {fid.prox ? `${fid.faltam} visita${fid.faltam===1?"":"s"} para ${fid.prox} ✦` : "Nível máximo alcançado ✦"}
             </div>
           </div>
-        </div>
-
-        {/* atalhos */}
-        <div style={{padding:"12px 22px 0",display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-          {acoes.map((a,i)=>(
-            <div key={i} onClick={a.on} className="aq-card-pick" style={{background:T.card,border:`1px solid ${T.line}`,borderRadius:12,padding:"14px 14px",cursor:"pointer"}}>
-              <div style={{fontSize:18,marginBottom:5,color:T.brass}}>{a.ic}</div>
-              <div style={{color:T.ink,fontSize:13,fontWeight:600}}>{a.label}</div>
-            </div>
-          ))}
         </div>
 
         <BottomNav ativo={HOME} onNav={irPara} />
@@ -687,7 +684,7 @@ function Portal() {
   // PASSO 1 — Serviço
   if (step===1) return (
     <Shell step={0} total={5} onToggleTema={onToggleTema}>
-      <Header titulo="Escolha o serviço" sub={clienteExistente?`Olá de novo, ${primeiroNome(clienteExistente.nome)}! 👋`:"O que você quer fazer hoje?"} onBack={()=> clienteExistente ? setStep(HOME) : setStep(0)}/>
+      <Header titulo="Escolha o serviço" sub={clienteExistente?`Olá de novo, ${primeiroNome(clienteExistente.nome)}!`:"O que você quer fazer hoje?"} onBack={()=> clienteExistente ? setStep(HOME) : setStep(0)}/>
       <div style={{padding:"8px 22px 0",display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
         {servicos.map(sv=>{
           const sel = servSel && servSel.id===sv.id;
@@ -864,8 +861,8 @@ function Portal() {
           <Linha label="Horário" valor={horaSel}/>
           <Linha label="Local" valor={BARBEARIA.endereco}/>
         </div>
-        {(resultado?.demo||demo) && <p style={{textAlign:"center",fontSize:11,color:T.muted,marginTop:14}}>⚙️ Modo demonstração — conecte o backend (VITE_GAS_URL) para gravar de verdade.</p>}
-        {!(resultado?.demo||demo) && <p style={{textAlign:"center",fontSize:13,color:T.muted,marginTop:16,lineHeight:1.5}}>Você receberá lembretes no WhatsApp: 24h e 1h antes. 💈</p>}
+        {(resultado?.demo||demo) && <p style={{textAlign:"center",fontSize:11,color:T.muted,marginTop:14}}>Modo demonstração — conecte o backend (VITE_GAS_URL) para gravar de verdade.</p>}
+        {!(resultado?.demo||demo) && <p style={{textAlign:"center",fontSize:13,color:T.muted,marginTop:16,lineHeight:1.5}}>Você receberá lembretes no WhatsApp: 24h e 1h antes.</p>}
       </div>
       <Bottom><Primary onClick={resetTudo}>Voltar ao início</Primary></Bottom>
     </Shell>
