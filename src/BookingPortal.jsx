@@ -135,6 +135,55 @@ const Bottom = ({ children }) => (
   <div style={{padding:"12px 22px 0",position:"sticky",bottom:0,background:`linear-gradient(to top, ${T.paper} 70%, transparent)`,paddingBottom:16}}>{children}</div>
 );
 
+// ─── Janelinha de Política de Privacidade / Termos de Uso ────────────────
+const LegalModal = ({ tipo, onClose }) => {
+  const isPriv = tipo === "privacidade";
+  const titulo = isPriv ? "Política de Privacidade" : "Termos de Uso";
+  return (
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(15,12,8,.55)",display:"flex",alignItems:"flex-end",justifyContent:"center",zIndex:9999,backdropFilter:"blur(2px)"}}>
+      <div onClick={(e)=>e.stopPropagation()} style={{background:T.paper,width:"100%",maxWidth:480,maxHeight:"82vh",borderRadius:"18px 18px 0 0",overflow:"hidden",display:"flex",flexDirection:"column",boxShadow:"0 -10px 40px rgba(0,0,0,.3)"}}>
+        <div style={{padding:"18px 22px",borderBottom:`1px solid ${T.line}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <span style={{fontFamily:T.serif,fontSize:20,fontWeight:700,color:T.ink}}>{titulo}</span>
+          <button onClick={onClose} style={{background:T.brassTint,border:"none",borderRadius:10,width:34,height:34,fontSize:18,color:T.brassDeep,cursor:"pointer",lineHeight:1}}>✕</button>
+        </div>
+        <div style={{padding:"18px 22px",overflowY:"auto",fontSize:14,lineHeight:1.6,color:T.ink2,fontFamily:T.sans}}>
+          <p style={{margin:"0 0 14px",fontSize:12.5,color:T.muted}}>Resumo dos pontos principais. AQUINO Barbearia &amp; Estética — R. Carlos Gomes, 256, Ideal, Ipatinga/MG.</p>
+          {isPriv ? (
+            <>
+              <h3 style={s.h}>Quais dados coletamos</h3>
+              <p style={s.p}>Nome, número de WhatsApp e, opcionalmente, data de nascimento e e-mail. Também guardamos seu histórico de serviços e frequência de visitas.</p>
+              <h3 style={s.h}>Para quê</h3>
+              <p style={s.p}>Para agendar, enviar lembretes e confirmações, manter seu histórico para recomendações e melhorar o atendimento. Tudo conforme a LGPD (Lei nº 13.709/2018).</p>
+              <h3 style={s.h}>Compartilhamento</h3>
+              <p style={s.p}>Não vendemos seus dados. Eles ficam em serviços do Google (Sheets/Calendar) usados apenas para operar o agendamento.</p>
+              <h3 style={s.h}>Seus direitos</h3>
+              <p style={s.p}>Você pode pedir acesso, correção ou exclusão dos seus dados, e recusar mensagens promocionais a qualquer momento respondendo <b>SAIR</b> no WhatsApp.</p>
+            </>
+          ) : (
+            <>
+              <h3 style={s.h}>Quem pode usar</h3>
+              <p style={s.p}>Pessoas com 18 anos ou mais. Menores devem ser representados por um responsável legal.</p>
+              <h3 style={s.h}>Agendamentos</h3>
+              <p style={s.p}>Os horários são exibidos em tempo real. Após agendar, você recebe a confirmação pelo WhatsApp. Confirme presença respondendo <b>C</b> ou <b>SIM</b>; para cancelar, responda <b>CANCELAR</b>.</p>
+              <h3 style={s.h}>Comunicações</h3>
+              <p style={s.p}>Você receberá mensagens de confirmação e lembrete. Mensagens promocionais dependem do seu consentimento e podem ser recusadas respondendo <b>SAIR</b>.</p>
+              <h3 style={s.h}>Cancelamento e no-show</h3>
+              <p style={s.p}>Pedimos aviso prévio para cancelar ou remarcar. Faltas repetidas sem aviso podem exigir sinal em agendamentos futuros.</p>
+            </>
+          )}
+        </div>
+        <div style={{padding:"14px 22px",borderTop:`1px solid ${T.line}`}}>
+          <button onClick={onClose} style={{width:"100%",padding:"14px",borderRadius:12,border:"none",background:`linear-gradient(150deg,${T.brass},${T.brassDeep})`,color:"#fff",fontSize:15,fontWeight:700,fontFamily:T.sans,cursor:"pointer"}}>Entendi</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+const s = {
+  h: { fontFamily:"'Hanken Grotesk', system-ui, sans-serif", fontSize:14, fontWeight:700, color:"#19150F", margin:"14px 0 4px" },
+  p: { margin:"0 0 8px" },
+};
+
 // ════════════════════════════════════════════════════════════════════════
 export default function BookingPortal() {
   const [step, setStep] = useState(0);            // 0 tel · 1 serviço · 2 barbeiro · 3 data/hora · 4 dados · 5 sinal · 6 ok
@@ -153,6 +202,8 @@ export default function BookingPortal() {
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState("");
   const [resultado, setResultado] = useState(null); // {requiresSinal, pix, ...}
+  const [aceito, setAceito] = useState(false);       // checkbox de termos (LGPD)
+  const [legalModal, setLegalModal] = useState(null); // null | "privacidade" | "termos"
   const demo = !ENV.hasBackend;
 
   // carregar serviços + barbeiros
@@ -218,6 +269,7 @@ export default function BookingPortal() {
 
   // PASSO 0 — Boas-vindas + telefone
   if (step===0) return (
+    <>
     <Shell>
       <div style={{padding:"40px 22px 0",textAlign:"center"}}>
         <div style={{width:64,height:64,margin:"0 auto 14px",borderRadius:18,background:`linear-gradient(150deg,${T.brass},${T.brassDeep})`,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 12px 24px -8px rgba(193,138,61,.55)"}}>
@@ -240,12 +292,29 @@ export default function BookingPortal() {
         />
         {erro && <div style={{color:T.danger,fontSize:13,marginTop:8}}>{erro}</div>}
       </div>
-      <Bottom><Primary onClick={avancarTelefone} disabled={telLimpo(tel).length<10}>Continuar</Primary>
-        <p style={{textAlign:"center",fontSize:11,color:T.muted,margin:"14px 0 0",lineHeight:1.5}}>
-          Ao continuar, você concorda com nossa Política de Privacidade e Termos de Uso.
-        </p>
+      <Bottom>
+        <label style={{display:"flex",alignItems:"flex-start",gap:10,margin:"0 0 14px",cursor:"pointer",textAlign:"left"}}>
+          <input
+            type="checkbox" checked={aceito} onChange={(e)=>setAceito(e.target.checked)}
+            style={{width:20,height:20,marginTop:1,accentColor:T.brass,flexShrink:0,cursor:"pointer"}}
+          />
+          <span style={{fontSize:12.5,color:T.ink2,lineHeight:1.5}}>
+            Li e concordo com a{" "}
+            <button type="button" onClick={(e)=>{e.preventDefault();setLegalModal("privacidade");}}
+              style={{background:"none",border:"none",padding:0,color:T.brassDeep,fontWeight:700,textDecoration:"underline",cursor:"pointer",fontSize:12.5,fontFamily:T.sans}}>
+              Política de Privacidade
+            </button>{" "}e os{" "}
+            <button type="button" onClick={(e)=>{e.preventDefault();setLegalModal("termos");}}
+              style={{background:"none",border:"none",padding:0,color:T.brassDeep,fontWeight:700,textDecoration:"underline",cursor:"pointer",fontSize:12.5,fontFamily:T.sans}}>
+              Termos de Uso
+            </button>.
+          </span>
+        </label>
+        <Primary onClick={avancarTelefone} disabled={telLimpo(tel).length<10 || !aceito}>Continuar</Primary>
       </Bottom>
     </Shell>
+    {legalModal && <LegalModal tipo={legalModal} onClose={()=>setLegalModal(null)} />}
+    </>
   );
 
   // PASSO 1 — Serviço
@@ -439,3 +508,4 @@ const Linha = ({ label, valor }) => (
     <span style={{fontWeight:600,fontSize:14,textAlign:"right"}}>{valor||"—"}</span>
   </div>
 );
+
