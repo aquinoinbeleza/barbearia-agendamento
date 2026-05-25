@@ -118,7 +118,39 @@ const labelData = (iso) => {
   if (!iso) return "";
   const p = String(iso).split("-"); if (p.length<3) return iso;
   const d = new Date(Number(p[0]), Number(p[1])-1, Number(p[2]));
+  if (isNaN(d.getTime())) return iso;
   return `${DIAS[d.getDay()]}, ${d.getDate()} ${MESES[d.getMonth()]}`;
+};
+// normaliza data de várias formas (YYYY-MM-DD, dd/mm/yyyy, ISO) → "YYYY-MM-DD"
+const normData = (v) => {
+  if (!v) return "";
+  const s = String(v);
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/); if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})/);    if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) { try { return d.toLocaleDateString("en-CA",{timeZone:"America/Sao_Paulo"}); } catch(e) { return isoDate(d); } }
+  return "";
+};
+// extrai "HH:MM" de "HH:MM", "HH:MM:SS" ou ISO de célula de hora do Sheets
+const normHora = (v) => {
+  if (!v && v!==0) return "";
+  const s = String(v);
+  let m = s.match(/^(\d{1,2}):(\d{2})/); if (m) return `${m[1].padStart(2,"0")}:${m[2]}`;
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) {
+    try { return d.toLocaleTimeString("pt-BR",{timeZone:"America/Sao_Paulo",hour:"2-digit",minute:"2-digit",hour12:false}); } catch(e) {}
+    return `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+  }
+  return s;
+};
+// data/hora de um agendamento, já normalizadas (prioriza dataBR vinda do backend)
+const agData = (a) => normData(a && (a.dataBR || a.data));
+const agHora = (a) => normHora(a && a.horario);
+// contagem de visitas saudável (ignora valores corrompidos no cadastro)
+const visitasSeguras = (cli, fallback) => {
+  let v = Number(cli && cli.totalVisitas);
+  if (!isFinite(v) || v < 0 || v > 5000) v = Number(fallback) || 0;
+  return v;
 };
 
 // fidelidade (mesma régua do painel): faixas por nº de visitas
@@ -213,6 +245,30 @@ const Bottom = ({ children }) => {
   );
 };
 
+// barra de navegação inferior (área do cliente)
+const BottomNav = ({ ativo, onNav }) => {
+  const T = useT();
+  const tabs = [
+    { id:HOME,   ic:"⌂",  label:"Início"    },
+    { id:1,      ic:"📅", label:"Agendar"   },
+    { id:HIST,   ic:"📋", label:"Histórico" },
+    { id:PERFIL, ic:"👤", label:"Perfil"    },
+  ];
+  return (
+    <div style={{position:"sticky",bottom:0,marginTop:22,background:T.card,borderTop:`1px solid ${T.line}`,display:"flex",justifyContent:"space-around",padding:"9px 0 11px"}}>
+      {tabs.map(t=>{
+        const on = ativo===t.id;
+        return (
+          <button key={t.id} onClick={()=>onNav(t.id)} className="aq-btn" style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,color:on?T.brass:T.muted,fontFamily:T.sans,padding:"2px 14px"}}>
+            <span style={{fontSize:19,lineHeight:1}}>{t.ic}</span>
+            <span style={{fontSize:10,fontWeight:on?700:500}}>{t.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+};
+
 const Linha = ({ label, valor }) => {
   const T = useT();
   return (
@@ -272,7 +328,7 @@ const LegalModal = ({ tipo, onClose }) => {
 };
 
 // ════════════════════════════════════════════════════════════════════════
-const HOME = 7, HIST = 8;
+const HOME = 7, HIST = 8, PERFIL = 9;
 
 function Portal() {
   const T = useT();
@@ -299,6 +355,7 @@ function Portal() {
   const [carregandoArea, setCarregandoArea] = useState(false);
   const [reagendandoId, setReagendandoId] = useState(null);
   const [aviso, setAviso] = useState(null);   // {tipo:"ok"|"erro", txt}
+  const [verificando, setVerificando] = useState(false);
   const demo = !ENV.hasBackend;
 
   const onToggleTema = useToggleTema();
@@ -329,8 +386,9 @@ function Portal() {
   const proximoAg = (() => {
     const hj = hojeISO();
     const fut = meusAgs
-      .filter(a => a.data && a.data >= hj)
-      .sort((a,b) => (a.data+a.horario).localeCompare(b.data+b.horario));
+      .map(a => ({ ...a, _d: agData(a), _h: agHora(a) }))
+      .filter(a => a._d && a._d >= hj)
+      .sort((a,b) => (a._d+a._h).localeCompare(b._d+b._h));
     return fut[0] || null;
   })();
 
@@ -338,17 +396,19 @@ function Portal() {
   const avancarTelefone = async () => {
     const limpo = telLimpo(tel);
     if (limpo.length < 10) { setErro("Digite um número de WhatsApp válido."); return; }
-    setErro("");
+    setErro(""); setVerificando(true);
     try {
       const r = await api.verificarCliente(limpo);
       if (r && r.encontrado) {
         setClienteExistente(r); setNome(r.nome || "");
-        await carregarMeus(limpo);
-        setStep(HOME);   // cliente conhecido → Área do Cliente
+        setVerificando(false);
+        setStep(HOME);            // entra já na Área do Cliente
+        carregarMeus(limpo);      // agendamentos carregam em segundo plano
         return;
       }
     } catch (e) {}
-    setStep(1);          // cliente novo → agendamento
+    setVerificando(false);
+    setStep(1);                   // cliente novo → agendamento
   };
 
   // ── Passo 3: carregar horários ──
@@ -401,7 +461,7 @@ function Portal() {
 
   // ── cancelar agendamento ──
   const cancelarAg = async (ag) => {
-    if (!window.confirm(`Cancelar o ${ag.servico} de ${labelData(ag.data)} às ${ag.horario}?`)) return;
+    if (!window.confirm(`Cancelar o ${ag.servico} de ${labelData(agData(ag))} às ${agHora(ag)}?`)) return;
     try {
       const r = await api.cancelar(ag.id, telLimpo(tel));
       if (r && (r.success || r._demo)) {
@@ -423,6 +483,12 @@ function Portal() {
     setStep(0); setTel(""); setServSel(null); setBarbSel(null); setDataSel(null); setHoraSel(null);
     setNome(""); setObs(""); setResultado(null); setClienteExistente(null); setReagendandoId(null);
     setMeusAgs([]); setAceito(false); setAviso(null);
+  };
+
+  // navegação da barra inferior
+  const irPara = (destino) => {
+    if (destino === 1) { setReagendandoId(null); setServSel(null); setBarbSel(null); }
+    setStep(destino);
   };
 
   // ═══ TELAS ═══
@@ -464,7 +530,7 @@ function Portal() {
               style={{background:"none",border:"none",padding:0,color:T.brass,fontWeight:700,textDecoration:"underline",cursor:"pointer",fontSize:12.5,fontFamily:T.sans}}>Termos de Uso</button>.
           </span>
         </label>
-        <Primary onClick={avancarTelefone} disabled={telLimpo(tel).length<10 || !aceito}>Continuar</Primary>
+        <Primary onClick={avancarTelefone} disabled={telLimpo(tel).length<10 || !aceito || verificando}>{verificando?"Verificando…":"Continuar"}</Primary>
       </Bottom>
     </Shell>
     {legalModal && <LegalModal tipo={legalModal} onClose={()=>setLegalModal(null)} />}
@@ -473,11 +539,11 @@ function Portal() {
 
   // PASSO 7 — ÁREA DO CLIENTE (cliente conhecido)
   if (step===HOME) {
-    const fid = fidelidade(clienteExistente?.visitas);
+    const fid = fidelidade(visitasSeguras(clienteExistente, meusAgs.length));
     const acoes = [
-      { ic:"📅", label:"Agendar",    on:()=>{ setReagendandoId(null); setServSel(null); setStep(1); } },
-      { ic:"✂", label:"Serviços",   on:()=>{ setReagendandoId(null); setServSel(null); setStep(1); } },
-      { ic:"★", label:"Fidelidade", on:()=>setStep(HOME) },
+      { ic:"📅", label:"Agendar",    on:()=>irPara(1) },
+      { ic:"✂", label:"Serviços",   on:()=>irPara(1) },
+      { ic:"★", label:"Fidelidade", on:()=>setStep(PERFIL) },
       { ic:"📋", label:"Histórico",  on:()=>setStep(HIST) },
     ];
     return (
@@ -505,7 +571,7 @@ function Portal() {
                 <div>
                   <div style={{color:T.brass,fontSize:10,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:4}}>Confirmado</div>
                   <div style={{color:T.ink,fontWeight:700,fontSize:17}}>{proximoAg.servico}</div>
-                  <div style={{color:T.muted,fontSize:12.5,marginTop:4}}>{labelData(proximoAg.data)} · {proximoAg.horario}</div>
+                  <div style={{color:T.muted,fontSize:12.5,marginTop:4}}>{labelData(proximoAg._d)} · {proximoAg._h}</div>
                 </div>
                 <div style={{width:44,height:44,borderRadius:12,background:T.brassTint,border:`1px solid ${T.brassLine}`,display:"flex",alignItems:"center",justifyContent:"center",color:T.brass,fontSize:21}}>✂</div>
               </div>
@@ -550,29 +616,31 @@ function Portal() {
           ))}
         </div>
 
-        <div style={{padding:"18px 22px 0",textAlign:"center"}}>
-          <button onClick={resetTudo} className="aq-btn" style={{background:"none",border:"none",color:T.muted,fontSize:13,cursor:"pointer",fontFamily:T.sans,textDecoration:"underline"}}>Sair / trocar de número</button>
-        </div>
+        <BottomNav ativo={HOME} onNav={irPara} />
       </Shell>
     );
   }
 
   // PASSO 8 — HISTÓRICO
   if (step===HIST) {
-    const ordenados = [...meusAgs].sort((a,b)=>(b.data+b.horario).localeCompare(a.data+a.horario));
+    const ordenados = [...meusAgs]
+      .map(a => ({ ...a, _d: agData(a), _h: agHora(a) }))
+      .sort((a,b)=>(b._d+b._h).localeCompare(a._d+a._h));
     return (
       <Shell onToggleTema={onToggleTema}>
         <Header titulo="Seu histórico" sub={`${ordenados.length} agendamento${ordenados.length===1?"":"s"}`} onBack={()=>setStep(HOME)}/>
         <div style={{padding:"8px 22px 0",display:"flex",flexDirection:"column",gap:10}}>
-          {ordenados.length===0 ? (
+          {carregandoArea ? (
+            <div style={{textAlign:"center",color:T.muted,fontSize:13,padding:"30px 0"}}>Carregando…</div>
+          ) : ordenados.length===0 ? (
             <div style={{textAlign:"center",color:T.muted,fontSize:13,padding:"30px 0"}}>Você ainda não tem agendamentos registrados.</div>
           ) : ordenados.map((a,i)=>{
-            const futuro = a.data >= hojeISO();
+            const futuro = a._d >= hojeISO();
             return (
               <div key={i} style={{background:T.card,border:`1px solid ${T.line}`,borderRadius:14,padding:"14px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                 <div>
                   <div style={{color:T.ink,fontWeight:700,fontSize:14}}>{a.servico}</div>
-                  <div style={{color:T.muted,fontSize:12,marginTop:3}}>{labelData(a.data)} · {a.horario}</div>
+                  <div style={{color:T.muted,fontSize:12,marginTop:3}}>{labelData(a._d)} · {a._h}</div>
                 </div>
                 <div style={{display:"flex",alignItems:"center",gap:10}}>
                   <span style={{color:T.muted,fontSize:13,fontWeight:600}}>{money(a.preco)}</span>
@@ -582,6 +650,36 @@ function Portal() {
             );
           })}
         </div>
+        <BottomNav ativo={HIST} onNav={irPara} />
+      </Shell>
+    );
+  }
+
+  // PASSO 9 — PERFIL
+  if (step===PERFIL) {
+    const fid = fidelidade(visitasSeguras(clienteExistente, meusAgs.length));
+    const inic = (primeiroNome(clienteExistente?.nome)[0] || "?").toUpperCase();
+    return (
+      <Shell onToggleTema={onToggleTema}>
+        <Header titulo="Seu perfil" onBack={()=>setStep(HOME)}/>
+        <div style={{padding:"4px 22px 0"}}>
+          <div style={{background:T.card,border:`1px solid ${T.line}`,borderRadius:16,padding:"18px",display:"flex",alignItems:"center",gap:14}}>
+            <div style={{width:54,height:54,borderRadius:"50%",background:`linear-gradient(135deg,${T.brass},${T.brassDeep})`,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:700,fontSize:22,flexShrink:0}}>{inic}</div>
+            <div>
+              <div style={{color:T.ink,fontWeight:700,fontSize:18}}>{clienteExistente?.nome || "—"}</div>
+              <div style={{color:T.muted,fontSize:13,marginTop:2}}>{maskTel(tel)}</div>
+            </div>
+          </div>
+          <div style={{background:T.card,border:`1px solid ${T.line}`,borderRadius:16,padding:"16px 18px",marginTop:12}}>
+            <Linha label="Nível de fidelidade" valor={`✦ ${fid.nivel}`}/>
+            <Linha label="Visitas" valor={`${fid.visitas}`}/>
+            <Linha label="Próximo nível" valor={fid.prox ? `${fid.prox} (faltam ${fid.faltam})` : "Máximo atingido"}/>
+          </div>
+          <div style={{marginTop:18}}>
+            <button onClick={resetTudo} className="aq-btn" style={{width:"100%",padding:"14px",borderRadius:12,border:`1.5px solid ${T.line}`,background:"transparent",color:T.muted,fontWeight:600,fontSize:14,cursor:"pointer",fontFamily:T.sans}}>Sair / trocar de número</button>
+          </div>
+        </div>
+        <BottomNav ativo={PERFIL} onNav={irPara} />
       </Shell>
     );
   }
