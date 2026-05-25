@@ -153,6 +153,82 @@ const visitasSeguras = (cli, fallback) => {
   return v;
 };
 
+// ─── INSPIRAÇÃO DO DIA ──────────────────────────────────────────────────
+const DIAS_L = ["Domingo","Segunda-feira","Terça-feira","Quarta-feira","Quinta-feira","Sexta-feira","Sábado"];
+const dataExtenso = (d) => `${DIAS_L[d.getDay()]}, ${d.getDate()} de ${MESES_L[d.getMonth()]} de ${d.getFullYear()}`;
+
+// signo solar (datas padrão)
+const signoDe = (d) => {
+  const md = (d.getMonth()+1)*100 + d.getDate();
+  if (md>=1222 || md<=119) return "Capricórnio";
+  if (md<=218) return "Aquário";
+  if (md<=320) return "Peixes";
+  if (md<=419) return "Áries";
+  if (md<=520) return "Touro";
+  if (md<=620) return "Gêmeos";
+  if (md<=722) return "Câncer";
+  if (md<=822) return "Leão";
+  if (md<=922) return "Virgem";
+  if (md<=1022) return "Libra";
+  if (md<=1121) return "Escorpião";
+  return "Sagitário";
+};
+// estação (hemisfério sul — Brasil)
+const estacaoDe = (d) => {
+  const md = (d.getMonth()+1)*100 + d.getDate();
+  if (md>=1221 || md<=319) return "Verão";
+  if (md<=620) return "Outono";
+  if (md<=922) return "Inverno";
+  if (md<=1220) return "Primavera";
+  return "Verão";
+};
+// fase da lua (aproximada) — 4 fases, como na agenda de papel
+const faseLuaDe = (d) => {
+  const sinodico = 2551442.8; // segundos (~29,53 dias)
+  const novaRef = Date.UTC(2000,0,6,18,14,0); // lua nova de referência
+  const diff = (d.getTime() - novaRef) / 1000;
+  let frac = ((diff % sinodico) + sinodico) % sinodico / sinodico; // 0..1
+  if (frac < 0.125 || frac >= 0.875) return "Lua Nova";
+  if (frac < 0.375) return "Lua Crescente";
+  if (frac < 0.625) return "Lua Cheia";
+  return "Lua Minguante";
+};
+// datas comemoradas (conjunto curado — adicione mais quando quiser, no formato "MM-DD")
+const COMEMORACOES = {
+  "01-01": ["Confraternização Universal"],
+  "03-08": ["Dia Internacional da Mulher"],
+  "04-21": ["Tiradentes"],
+  "05-01": ["Dia do Trabalho"],
+  "05-25": ["Dia do Massagista","Dia da Costureira","Dia da Indústria","Dia Nacional da Adoção"],
+  "06-12": ["Dia dos Namorados"],
+  "09-07": ["Independência do Brasil"],
+  "10-12": ["Nossa Senhora Aparecida","Dia das Crianças"],
+  "10-15": ["Dia do Professor"],
+  "11-02": ["Finados"],
+  "11-15": ["Proclamação da República"],
+  "11-20": ["Dia da Consciência Negra"],
+  "12-25": ["Natal"],
+};
+const comemoracoesDe = (d) => COMEMORACOES[`${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`] || [];
+// frases de autocuidado / inspiração (originais — trocam a cada entrada)
+const FRASES = [
+  "Cuidar de si não é vaidade — é respeito por quem você é.",
+  "A autoestima se constrói nos pequenos cuidados de cada dia.",
+  "Respire fundo: hoje é um ótimo dia para se sentir bem.",
+  "Quem se cuida por fora também fortalece o que sente por dentro.",
+  "Um tempo para você não é luxo, é necessidade.",
+  "A melhor versão de você começa com um gesto de carinho consigo mesmo.",
+  "Sentir-se bem na própria pele muda o jeito de encarar o dia.",
+  "Pequenas pausas para se cuidar renovam a energia inteira.",
+  "Você merece sair daqui se sentindo mais leve e confiante.",
+  "Autoconfiança também se cultiva no espelho — comece por se gostar.",
+  "Cuidar da aparência é uma forma gentil de cuidar da mente.",
+  "Hoje, escolha se tratar com a mesma gentileza que oferece aos outros.",
+  "Um visual renovado é um bom começo para uma fase nova.",
+  "O cuidado de hoje é o bem-estar de amanhã.",
+  "Valorize-se: você é o seu projeto mais importante.",
+];
+
 // fidelidade (mesma régua do painel): faixas por nº de visitas
 const NIVEIS = [
   { nome:"Bronze",     min:0,  prox:"Prata"      },
@@ -292,6 +368,34 @@ const Linha = ({ label, valor }) => {
   );
 };
 
+// cartão "Inspiração do dia" — data, signo, lua, estação, comemorações e frase
+const InspiracaoCard = ({ fraseIdx }) => {
+  const T = useT();
+  const hoje = new Date();
+  const coms = comemoracoesDe(hoje);
+  const chips = [signoDe(hoje), faseLuaDe(hoje), estacaoDe(hoje)];
+  return (
+    <div style={{background:T.card,border:`1px solid ${T.line}`,borderRadius:16,padding:"16px"}}>
+      <div style={{color:T.muted,fontSize:11,letterSpacing:"0.08em",textTransform:"uppercase"}}>{dataExtenso(hoje)}</div>
+      <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:10}}>
+        {chips.map((c,i)=>(
+          <span key={i} style={{fontSize:11,fontWeight:600,color:T.brass,background:T.brassTint,border:`1px solid ${T.brassLine}`,borderRadius:99,padding:"4px 10px"}}>{c}</span>
+        ))}
+      </div>
+      {coms.length>0 && (
+        <div style={{marginTop:10,color:T.ink2,fontSize:12.5,lineHeight:1.5}}>
+          <span style={{color:T.muted}}>Hoje também se celebra: </span>{coms.join(" · ")}
+        </div>
+      )}
+      <div style={{height:1,background:T.line,margin:"14px 0"}}/>
+      <div style={{display:"flex",gap:10,alignItems:"flex-start"}}>
+        <span style={{color:T.brass,fontSize:16,lineHeight:1.3}}>✦</span>
+        <p style={{margin:0,fontFamily:T.serif,fontStyle:"italic",fontSize:15.5,lineHeight:1.5,color:T.ink}}>{FRASES[fraseIdx % FRASES.length]}</p>
+      </div>
+    </div>
+  );
+};
+
 // ─── Janelinha de Política / Termos ─────────────────────────────────────
 const LegalModal = ({ tipo, onClose }) => {
   const T = useT();
@@ -369,6 +473,7 @@ function Portal() {
   const [reagendandoId, setReagendandoId] = useState(null);
   const [aviso, setAviso] = useState(null);   // {tipo:"ok"|"erro", txt}
   const [verificando, setVerificando] = useState(false);
+  const [fraseIdx] = useState(() => Math.floor(Math.random() * FRASES.length));
   const demo = !ENV.hasBackend;
 
   const onToggleTema = useToggleTema();
@@ -611,6 +716,11 @@ function Portal() {
               {fid.prox ? `${fid.faltam} visita${fid.faltam===1?"":"s"} para ${fid.prox} ✦` : "Nível máximo alcançado ✦"}
             </div>
           </div>
+        </div>
+
+        {/* inspiração do dia */}
+        <div style={{padding:"12px 22px 0"}}>
+          <InspiracaoCard fraseIdx={fraseIdx} />
         </div>
 
         <BottomNav ativo={HOME} onNav={irPara} />
