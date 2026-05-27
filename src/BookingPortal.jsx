@@ -153,6 +153,32 @@ const visitasSeguras = (cli, fallback) => {
   return v;
 };
 
+// ─── DATA DE NASCIMENTO (R2) ────────────────────────────────────────────
+// Backend grava como "DD/MM/AAAA" (linha 1048 do Codigo.gs). O <input type="date">
+// trabalha com "YYYY-MM-DD". Estes dois helpers fazem a ponte sem perder formato.
+const nascParaInput = (v) => {              // o que veio do backend → valor do input
+  if (!v) return "";
+  const s = String(v).trim();
+  let m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})/); if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+  m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);        if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  return "";
+};
+const nascParaBackend = (v) => {            // valor do input → o que vai pro backend
+  if (!v) return "";
+  const m = String(v).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : "";
+};
+const nascValido = (v) => {                  // valida data plausível (não futura, idade 5-110)
+  if (!v) return false;
+  const m = String(v).match(/^(\d{4})-(\d{2})-(\d{2})/); if (!m) return false;
+  const d = new Date(Number(m[1]), Number(m[2])-1, Number(m[3]));
+  if (isNaN(d.getTime())) return false;
+  const hj = new Date(); hj.setHours(0,0,0,0);
+  if (d > hj) return false;                  // data no futuro
+  const anos = (hj - d) / (1000*60*60*24*365.25);
+  return anos >= 5 && anos <= 110;
+};
+
 // ─── INSPIRAÇÃO DO DIA ──────────────────────────────────────────────────
 const DIAS_L = ["Domingo","Segunda-feira","Terça-feira","Quarta-feira","Quinta-feira","Sexta-feira","Sábado"];
 const dataExtenso = (d) => `${DIAS_L[d.getDay()]}, ${d.getDate()} de ${MESES_L[d.getMonth()]} de ${d.getFullYear()}`;
@@ -503,10 +529,12 @@ const Primary = ({ children, onClick, disabled }) => {
   );
 };
 
-const Bottom = ({ children }) => {
+const Bottom = ({ children, comBarra }) => {
   const T = useT();
+  // Quando há BottomNav fixa no rodapé, o botão Continuar sobe 70px pra
+  // ficar acima dela (R4). Sem barra, mantém o comportamento original.
   return (
-    <div style={{padding:"12px 22px 0",position:"sticky",bottom:0,background:`linear-gradient(to top, ${T.bg} 70%, transparent)`,paddingBottom:16}}>{children}</div>
+    <div style={{padding:"12px 22px 0",position:"sticky",bottom: comBarra ? 70 : 0,background:`linear-gradient(to top, ${T.bg} 70%, transparent)`,paddingBottom:16}}>{children}</div>
   );
 };
 
@@ -642,6 +670,7 @@ function Portal() {
   const [tel, setTel] = useState("");
   const [clienteExistente, setClienteExistente] = useState(null);
   const [nome, setNome] = useState("");
+  const [nascimento, setNascimento] = useState(""); // R2 — yyyy-mm-dd (formato do <input type=date>)
   const [obs, setObs] = useState("");
   const [servicos, setServicos] = useState([]);
   const [barbeiros, setBarbeiros] = useState([]);
@@ -708,6 +737,7 @@ function Portal() {
       const r = await api.verificarCliente(limpo);
       if (r && r.encontrado) {
         setClienteExistente(r); setNome(r.nome || "");
+        setNascimento(nascParaInput(r.nascimento)); // R2: pré-preenche se já existe no cadastro
         setVerificando(false);
         setStep(HOME);            // entra já na Área do Cliente
         carregarMeus(limpo);      // agendamentos carregam em segundo plano
@@ -735,10 +765,15 @@ function Portal() {
   // ── enviar agendamento ──
   const confirmar = async () => {
     if (!nome.trim()) { setErro("Por favor, informe seu nome."); return; }
+    if (!nascValido(nascimento)) {                                 // R2 — obrigatório
+      setErro("Informe uma data de nascimento válida.");
+      return;
+    }
     setErro(""); setEnviando(true);
     try {
       const r = await api.agendar({
         nome: nome.trim(), telefone: telLimpo(tel),
+        nascimento: nascParaBackend(nascimento),                   // R2 — DD/MM/AAAA pro backend
         data: isoDate(dataSel), horario: horaSel,
         servico: { nome: servSel.nome, duracao: servSel.duracao, preco: servSel.preco },
         barbeiro: barbSel ? barbSel.nome : "", observacao: obs.trim(),
@@ -788,7 +823,7 @@ function Portal() {
 
   const resetTudo = () => {
     setStep(0); setTel(""); setServSel(null); setBarbSel(null); setDataSel(null); setHoraSel(null);
-    setNome(""); setObs(""); setResultado(null); setClienteExistente(null); setReagendandoId(null);
+    setNome(""); setNascimento(""); setObs(""); setResultado(null); setClienteExistente(null); setReagendandoId(null);
     setMeusAgs([]); setAceito(false); setAviso(null);
   };
 
@@ -1002,7 +1037,9 @@ function Portal() {
           );
         })}
       </div>
-      <Bottom><Primary onClick={()=>setStep(2)} disabled={!servSel}>{servSel?`Continuar · ${money(servSel.preco)}`:"Selecione um serviço"}</Primary></Bottom>
+      <Bottom comBarra><Primary onClick={()=>setStep(2)} disabled={!servSel}>{servSel?`Continuar · ${money(servSel.preco)}`:"Selecione um serviço"}</Primary></Bottom>
+      <div style={{height:80}}/>
+      <BottomNav ativo={1} onNav={irPara} />
     </Shell>
   );
 
@@ -1028,7 +1065,9 @@ function Portal() {
           );
         })}
       </div>
-      <Bottom><Primary onClick={()=>setStep(3)} disabled={!barbSel}>Continuar</Primary></Bottom>
+      <Bottom comBarra><Primary onClick={()=>setStep(3)} disabled={!barbSel}>Continuar</Primary></Bottom>
+      <div style={{height:80}}/>
+      <BottomNav ativo={1} onNav={irPara} />
     </Shell>
   );
 
@@ -1078,11 +1117,15 @@ function Portal() {
         )}
         {erro && <div style={{color:T.danger,fontSize:13,marginTop:12,textAlign:"center"}}>{erro}</div>}
       </div>
-      <Bottom>
+      <Bottom comBarra={!reagendandoId}>
         {reagendandoId
           ? <Primary onClick={confirmarReagendamento} disabled={!dataSel||!horaSel||enviando}>{enviando?"Remarcando…":"Confirmar novo horário"}</Primary>
           : <Primary onClick={()=>setStep(4)} disabled={!dataSel||!horaSel}>Continuar</Primary>}
       </Bottom>
+      {!reagendandoId && (<>
+        <div style={{height:80}}/>
+        <BottomNav ativo={1} onNav={irPara} />
+      </>)}
     </Shell>
   );
 
@@ -1109,6 +1152,18 @@ function Portal() {
             onFocus={(e)=>e.target.style.borderColor=T.brass} onBlur={(e)=>e.target.style.borderColor=T.line}/>
         </div>
         <div style={{marginTop:14}}>
+          <label style={{fontSize:13,fontWeight:600,color:T.ink2}}>Data de nascimento</label>
+          <input
+            value={nascimento}
+            onChange={(e)=>setNascimento(e.target.value)}
+            type="date"
+            max={hojeISO()}
+            min="1900-01-01"
+            style={{width:"100%",marginTop:8,padding:"14px 16px",fontSize:16,borderRadius:13,border:`1.5px solid ${T.line}`,background:T.card,fontFamily:T.sans,outline:"none",color:T.ink,colorScheme:T.name==="dark"?"dark":"light"}}
+            onFocus={(e)=>e.target.style.borderColor=T.brass} onBlur={(e)=>e.target.style.borderColor=T.line}/>
+          <div style={{fontSize:11,color:T.muted,marginTop:6}}>Usamos para mensagem de aniversário e cuidados específicos.</div>
+        </div>
+        <div style={{marginTop:14}}>
           <label style={{fontSize:13,fontWeight:600,color:T.ink2}}>Observação <span style={{color:T.muted,fontWeight:400}}>(opcional)</span></label>
           <input value={obs} onChange={(e)=>setObs(e.target.value)} placeholder="Algum pedido especial?"
             style={{width:"100%",marginTop:8,padding:"14px 16px",fontSize:15,borderRadius:13,border:`1.5px solid ${T.line}`,background:T.card,fontFamily:T.sans,outline:"none",color:T.ink}}
@@ -1116,7 +1171,11 @@ function Portal() {
         </div>
         {erro && <div style={{color:T.danger,fontSize:13,marginTop:12}}>{erro}</div>}
       </div>
-      <Bottom><Primary onClick={confirmar} disabled={enviando||!nome.trim()}>{enviando?"Confirmando…":"Confirmar agendamento"}</Primary></Bottom>
+      <Bottom comBarra={!reagendandoId}><Primary onClick={confirmar} disabled={enviando||!nome.trim()||!nascValido(nascimento)}>{enviando?"Confirmando…":"Confirmar agendamento"}</Primary></Bottom>
+      {!reagendandoId && (<>
+        <div style={{height:80}}/>
+        <BottomNav ativo={1} onNav={irPara} />
+      </>)}
     </Shell>
   );
 
