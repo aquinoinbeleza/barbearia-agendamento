@@ -1,4 +1,4 @@
-import { useState, useEffect, createContext, useContext } from "react";
+import { useState, useEffect, useRef, createContext, useContext } from "react";
 
 /* ════════════════════════════════════════════════════════════════════════
    AQUINO · Portal do Cliente (agendamento + área do cliente)
@@ -40,6 +40,7 @@ const api = {
   cancelar: (agendamentoId, tel) => api._post({ action: "cancelar", agendamentoId, tel }),
   reagendar:(agendamentoId, data, hora, tel) => api._post({ action: "reagendar", agendamentoId, novoHorario: { data, hora }, tel }),
   atualizarPerfil: (payload) => api._post({ action: "atualizarPerfil", ...payload }),
+  uploadFoto: (imagem) => api._post({ action: "uploadFoto", imagem }),
 };
 
 // ─── DADOS DEMO (sem backend) ───────────────────────────────────────────
@@ -191,6 +192,30 @@ const dividirNome = (nomeCompleto) => {       // "Vinícius Aquino Silva" → ["
 };
 const emailValido = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v||"").trim());
 
+// ─── FOTO DO CLIENTE ────────────────────────────────────────────────────
+// Reduz a imagem escolhida (câmera ou galeria) para no máx 512px e devolve
+// um data URL JPEG leve, pronto pra enviar ao backend (que salva no Drive).
+const reduzirImagem = (file, max = 512, q = 0.82) => new Promise((resolve, reject) => {
+  if (!file || !/^image\//.test(file.type)) { reject(new Error("arquivo_invalido")); return; }
+  const reader = new FileReader();
+  reader.onerror = () => reject(new Error("leitura_falhou"));
+  reader.onload = () => {
+    const img = new Image();
+    img.onerror = () => reject(new Error("imagem_invalida"));
+    img.onload = () => {
+      let { width: w, height: h } = img;
+      if (w > h && w > max) { h = Math.round(h * max / w); w = max; }
+      else if (h >= w && h > max) { w = Math.round(w * max / h); h = max; }
+      const c = document.createElement("canvas");
+      c.width = w; c.height = h;
+      c.getContext("2d").drawImage(img, 0, 0, w, h);
+      resolve(c.toDataURL("image/jpeg", q));
+    };
+    img.src = reader.result;
+  };
+  reader.readAsDataURL(file);
+});
+
 // ─── DEPENDENTES (filhos) ───────────────────────────────────────────────
 // No estado guardamos nascimento como "yyyy-mm-dd" (formato do <input date>).
 // Pro backend convertemos cada um para "DD/MM/AAAA".
@@ -259,229 +284,293 @@ const faseLuaDe = (d) => {
   if (frac < 0.625) return "Lua Cheia";
   return "Lua Minguante";
 };
-// datas comemoradas (conjunto curado — adicione mais quando quiser, no formato "MM-DD")
+// datas comemoradas — lista original restaurada com consertos cirúrgicos:
+// (1) entradas cortadas pela metade foram removidas/completadas; (2) o lixo
+// "FIxAS" foi removido sem apagar a data; (3) entradas grudadas foram separadas;
+// (4) Dia da Bandeira foi movido do 18/11 para o 19/11 (a data correta);
+// (5) foram acrescentadas datas conhecidas (feriados, festas juninas, Dia da
+// Pizza, Dia do Rock, Dia das Crianças, Outubro Rosa, Novembro Azul, etc.).
 const COMEMORACOES = {
+  // ── Janeiro ──
   "01-01":["Confraternização Universal"],
-  "01-04":["Dia da Abreugrafia","Dia Nacional do"],
+  "01-04":["Dia da Abreugrafia"],
+  "01-06":["Dia de Reis"],
+  "01-09":["Dia do Astronauta","Dia do Fico"],
   "01-12":["Dia Nacional do Jogo"],
-  "01-15":["Dia dos Tribunais de"],
   "01-17":["Dia Nacional do Cabeleireiro, Barbeiro, Esteticista, Manicure, Pedicure"],
   "01-18":["Dia Nacional do Krav Maga","Dia Nacional do Farmacêutico"],
-  "01-20":["Dia Nacional da Parteira Tradicional","Dia Nacional de Combate"],
-  "01-21":["Dia Nacional do Movimento"],
+  "01-20":["Dia Nacional da Parteira Tradicional","Dia de São Sebastião"],
   "01-24":["Dia Nacional do Aposentado","Dia Nacional da Bossa Nova"],
-  "01-25":["Dia Nacional de Segurança da Vida nas Áreas de Barragens"],
+  "01-25":["Dia Nacional de Segurança da Vida nas Áreas de Barragens","Aniversário de São Paulo"],
   "01-28":["Dia Nacional de Combate ao Trabalho Escravo","Dia Nacional do Exportador","Dia Nacional das Reservas"],
-  "01-31":["Campanha Janeiro Branco"],
-  "02-05":["Dia Nacional da Mamografia","Dia Nacional de Luta"],
+  "01-30":["Dia da Saudade","Dia Mundial da Não-Violência e da Paz"],
+  "01-31":["Campanha Janeiro Branco — Saúde Mental"],
+  // ── Fevereiro ──
+  "02-02":["Dia de Iemanjá","Dia de Nossa Senhora dos Navegantes"],
+  "02-05":["Dia Nacional da Mamografia"],
   "02-09":["Dia Nacional do Cerco da Lapa"],
-  "02-14":["Dia Nacional do Brega"],
+  "02-14":["Dia Nacional do Brega","Dia da Amizade"],
   "02-17":["Dia Nacional da Axé-Music","Dia Nacional da Criança"],
-  "02-18":["Dia Nacional do"],
+  "02-21":["Dia Internacional da Língua Materna"],
   "02-23":["Dia Nacional do Rotary","Dia da Conquista do Voto"],
-  "02-24":["Dia Nacional de Conscientização sobre a"],
-  "02-26":["Dia Nacional da"],
-  "02-27":["Semana Nacional de"],
-  "03-03":["Dia Nacional da"],
-  "03-05":["Dia Nacional da"],
+  // ── Março ──
   "03-08":["Dia Internacional da Mulher"],
-  "03-12":["Dia do Bibliotecário","Dia Nacional de Luta"],
+  "03-12":["Dia do Bibliotecário"],
+  "03-14":["Dia Nacional dos Animais"],
   "03-15":["Dia Nacional do Consumidor","Dia Nacional de Conscientização sobre as Mudanças Climáticas"],
   "03-16":["Dia Nacional do Ouvidor","Dia Nacional do Teatro do Oprimido","Dia Nacional da Imigração Judaica"],
   "03-18":["Dia do Demolay"],
-  "03-19":["Dia Nacional do Artesão","Dia Nacional do Teatro para a Infância e Juventude"],
+  "03-19":["Dia Nacional do Artesão","Dia Nacional do Teatro para a Infância e Juventude","Dia de São José"],
   "03-20":["Dia Nacional da Aquicultura"],
-  "03-21":["Dia Nacional das Tradições das Raízes de Matrizes Africanas e Nações do Candomblé"],
+  "03-21":["Dia Nacional das Tradições das Raízes de Matrizes Africanas e Nações do Candomblé","Dia Internacional contra a Discriminação Racial","Dia Mundial da Poesia"],
   "03-22":["Dia Nacional da Água","Dia Nacional do Piso"],
-  "03-23":["Dia Nacional da Comunidade Árabe"],
-  "03-25":["Dia Nacional do Oficial de Justiça","Dia da Conscientização"],
-  "04-05":["Dia Nacional da Polícia Civil","Dia Nacional de Combate ao"],
+  "03-23":["Dia Nacional da Comunidade Árabe","Dia Mundial da Meteorologia"],
+  "03-24":["Dia Mundial de Combate à Tuberculose"],
+  "03-25":["Dia Nacional do Oficial de Justiça"],
+  "03-27":["Dia Mundial do Teatro","Dia do Circo"],
+  "03-29":["Dia Nacional do Coração"],
+  // ── Abril ──
+  "04-01":["Dia da Mentira"],
+  "04-02":["Dia Mundial de Conscientização do Autismo","Dia Internacional do Livro Infantil"],
+  "04-05":["Dia Nacional da Polícia Civil"],
+  "04-07":["Dia Mundial da Saúde","Dia do Jornalista"],
   "04-08":["Dia Nacional do Sistema Braille","Dia Nacional do Humorista"],
-  "04-12":["Dia da Celebração da Amizade Brasil-Israel","Dia Nacional da"],
-  "04-13":["Dia Pan-Americano"],
-  "04-14":["Dia Nacional de Prevenção ao Afogamento Infantil","Dia Nacional da"],
-  "04-15":["Dia Nacional da Voz"],
+  "04-12":["Dia da Celebração da Amizade Brasil-Israel"],
+  "04-13":["Dia Pan-Americano","Dia do Beijo","Dia do Hino Nacional"],
+  "04-14":["Dia Nacional de Prevenção ao Afogamento Infantil"],
+  "04-15":["Dia Nacional da Voz","Dia Mundial da Arte","Dia do Desenhista"],
   "04-16":["Dia Nacional da Lembrança do Holocausto","Dia Nacional da Botânica"],
   "04-17":["Dia Nacional de Luta pela Reforma Agrária","Dia Nacional do Livro Infantil"],
-  "04-18":["Dia Nacional do Espiritismo"],
+  "04-18":["Dia Nacional do Espiritismo","Dia de Monteiro Lobato"],
   "04-19":["Dia dos Povos Indígenas"],
   "04-20":["Dia do Diplomata","Dia das Polícias Civis e Militares"],
   "04-21":["Tiradentes","Dia Consagrado ao Funcionário Policial Civil"],
-  "04-22":["Dia da Comunidade Luso-Brasileira","Dia Nacional do Choro","Dia Nacional do Escotismo"],
-  "04-23":["Dia Nacional de Conscientização da Fibrodisplasia Ossificante Progressiva (FOP)","Dia Nacional da Língua"],
-  "04-24":["Dia Nacional de"],
-  "04-28":["Dia Nacional da Conscientização sobre a Doença de Fabry"],
-  "04-30":["Dia Nacional da Mulher","Mês da Conscientização"],
+  "04-22":["Descobrimento do Brasil","Dia da Comunidade Luso-Brasileira","Dia Nacional do Choro","Dia Nacional do Escotismo","Dia do Planeta Terra"],
+  "04-23":["Dia Nacional de Conscientização da Fibrodisplasia Ossificante Progressiva (FOP)","Dia Mundial do Livro"],
+  "04-27":["Dia da Empregada Doméstica"],
+  "04-28":["Dia Nacional da Conscientização sobre a Doença de Fabry","Dia da Educação","Dia da Sogra"],
+  "04-30":["Dia Nacional da Mulher"],
+  // ── Maio ──
   "05-01":["Dia do Trabalho","Dia do Parlamento","Dia do Pau-Brasil"],
-  "05-03":["Dia Nacional de Combate à Violência Doméstica e Familiar contra a Criança e o Adolescente","Dia Nacional de Luta"],
-  "05-04":["Dia Nacional do Líder Comunitário"],
+  "05-03":["Dia Nacional de Combate à Violência Doméstica e Familiar contra a Criança e o Adolescente","Dia Mundial da Liberdade de Imprensa"],
+  "05-04":["Dia Nacional do Líder Comunitário","Dia do Carteiro","Dia Internacional do Bombeiro"],
   "05-05":["Dia Nacional da Pessoa com Visão Monocular"],
   "05-06":["Dia Nacional da Matemática","Dia Nacional do Turismo"],
-  "05-08":["Dia Nacional das Hemoglobinopatias","Dia Nacional do Guia"],
+  "05-08":["Dia Nacional das Hemoglobinopatias","Dia Nacional do Guia","Dia da Vitória (fim da 2ª Guerra na Europa)"],
   "05-10":["Dia Nacional do Frei Sant’Anna Galvão"],
   "05-11":["Dia Nacional do Reggae","Dia Nacional dos Agentes de Trânsito"],
-  "05-13":["Dia do Automóvel e da Estrada de Rodagem","Dia Nacional do Zootecnista","Dia Nacional de"],
+  "05-12":["Dia Internacional da Enfermagem"],
+  "05-13":["Dia do Automóvel e da Estrada de Rodagem","Dia Nacional do Zootecnista","Abolição da Escravatura (Lei Áurea)"],
   "05-14":["Dia Nacional do Controle das Infecções Hospitalares","Dia Nacional de Conscientização quanto à Mucopolissacaridose"],
-  "05-15":["Dia Nacional da Educação Legislativa","Dia Nacional de Conscientização sobre a Esclerose Tuberosa","Dia Nacional de Combate"],
-  "05-17":["Dia Nacional de Combate ao Abuso e à Exploração Sexual"],
-  "05-18":["Dia Nacional do Museu FIxAS"],
+  "05-15":["Dia Nacional da Educação Legislativa","Dia Nacional de Conscientização sobre a Esclerose Tuberosa","Dia Internacional da Família","Dia do Assistente Social"],
+  "05-17":["Dia Nacional de Combate ao Abuso e à Exploração Sexual","Dia Internacional contra a Homofobia, a Transfobia e a Bifobia"],
+  "05-18":["Dia Nacional do Museu","Dia Internacional dos Museus"],
   "05-19":["Dia Nacional de Doação de Leite Humano","Dia Nacional do Físico"],
   "05-20":["Dia Nacional do Pedagogo","Dia do Telegrafista","Dia Nacional do Cigano","Dia Nacional do Calcário Agrícola"],
-  "05-24":["Dia Nacional do Milho","Dia Nacional de Conscientização sobre a Esquizofrenia","Dia Nacional do Metodismo Wesleyano","Dia da Indústria Data Comemorativa do Trabalhador Rural"],
+  "05-22":["Dia do Apicultor","Dia Internacional da Biodiversidade"],
+  "05-24":["Dia Nacional do Milho","Dia Nacional de Conscientização sobre a Esquizofrenia","Dia Nacional do Metodismo Wesleyano","Dia do Trabalhador Rural"],
   "05-25":["Dia da Indústria","Dia da Costureira","Dia do Massagista","Dia Nacional do Respeito ao Contribuinte"],
   "05-26":["Dia Nacional do Sanfoneiro","Dia da Mata Atlântica"],
   "05-27":["Dia Nacional do Engenheiro de Custos"],
   "05-28":["Dia Nacional do Brincar"],
   "05-29":["Dia do Ibgeano","Campanha Maio Laranja"],
-  "06-01":["Dia da Imprensa","Dia Nacional da"],
-  "06-05":["Dia Nacional da Reciclagem","Dia Nacional do Teste do Pezinho","Dia Nacional de Luta contra Queimaduras"],
+  "05-31":["Dia Mundial sem Tabaco","Maio Amarelo — Trânsito Seguro"],
+  // ── Junho ──
+  "06-01":["Dia da Imprensa"],
+  "06-05":["Dia Nacional da Reciclagem","Dia Nacional do Teste do Pezinho","Dia Nacional de Luta contra Queimaduras","Dia Mundial do Meio Ambiente"],
   "06-06":["Dia Nacional do Profissional de Logística","Dia Nacional da Doceira","Dia de Anchieta"],
-  "06-09":["Dia Nacional da Música Gospel","Dia Nacional de Combate"],
-  "06-12":["Dia dos Namorados","Dia Nacional da"],
+  "06-08":["Dia Mundial dos Oceanos"],
+  "06-09":["Dia Nacional da Música Gospel"],
+  "06-10":["Dia da Língua Portuguesa (Camões)"],
+  "06-12":["Dia dos Namorados"],
+  "06-13":["Dia de Santo Antônio"],
   "06-15":["Dia Nacional da Imigração Japonesa"],
   "06-18":["Dia do Tambor de Crioula"],
   "06-20":["Dia Nacional do Vigilante","Dia Nacional de Luta contra a Esclerose Lateral Amiotrófica (ELA)"],
-  "06-21":["Dia Nacional do Artista Vidreiro"],
-  "06-23":["Dia do Policial Legislativo","Dia Nacional do Esporte","Dia Nacional da Araucária","Dia Nacional do Policial e"],
-  "06-24":["Dia Nacional de Conscientização sobre a Fissura Labiopalatina","Dia Nacional da Consciência do Primeiro Voto Data do Reconhecimento"],
-  "06-26":["Dia Nacional do"],
+  "06-21":["Dia Nacional do Artista Vidreiro","Início do Inverno"],
+  "06-23":["Dia do Policial Legislativo","Dia Nacional do Esporte","Dia Nacional da Araucária"],
+  "06-24":["Dia Nacional de Conscientização sobre a Fissura Labiopalatina","Dia de São João","Festa Junina"],
+  "06-26":["Dia Internacional de Combate às Drogas"],
   "06-27":["Dia Nacional da Aviação de Segurança Pública do Brasil"],
-  "06-29":["Dia do Pescador Amador","Dia Nacional do Bumba Meu Boi"],
-  "06-30":["Dia Nacional do Fiscal Federal Agropecuário FIxAS"],
+  "06-28":["Dia do Orgulho LGBTQIA+"],
+  "06-29":["Dia do Pescador Amador","Dia Nacional do Bumba Meu Boi","Dia de São Pedro"],
+  "06-30":["Dia Nacional do Fiscal Federal Agropecuário"],
+  // ── Julho ──
   "07-02":["Independência do Brasil no Estado da Bahia","Dia Nacional da Ciência"],
-  "07-08":["Dia Nacional do Pesquisador","Dia Nacional do Produtor de Leite"],
+  "07-08":["Dia Nacional do Pesquisador","Dia Nacional do Produtor de Leite","Dia do Panificador"],
+  "07-09":["Revolução Constitucionalista de 1932"],
+  "07-10":["Dia da Pizza"],
   "07-12":["Dia Nacional do Funk","Dia do Engenheiro de Saneamento"],
-  "07-13":["Dia Nacional da Música e Viola Caipira","Dia Nacional de"],
+  "07-13":["Dia Nacional da Música e Viola Caipira","Dia Mundial do Rock"],
+  "07-14":["Dia da Liberdade de Pensamento"],
   "07-15":["Dia Nacional do Pecuarista"],
-  "07-16":["Dia do Comerciante","Dia Nacional do"],
+  "07-16":["Dia do Comerciante"],
   "07-19":["Dia da Caridade"],
+  "07-20":["Dia do Amigo","Dia Internacional da Amizade","Dia do Futebol"],
   "07-21":["Dia Nacional do Garimpeiro"],
   "07-24":["Dia Nacional do Suinocultor"],
-  "07-25":["Dia Nacional de Tereza de Benguela e da Mulher Negra","Dia Nacional do Arqueólogo"],
-  "07-26":["Dia Nacional do Coco de Roda, da Ciranda e da Marzuca"],
+  "07-25":["Dia Nacional de Tereza de Benguela e da Mulher Negra","Dia Nacional do Arqueólogo","Dia do Motorista"],
+  "07-26":["Dia Nacional do Coco de Roda, da Ciranda e da Marzuca","Dia dos Avós"],
   "07-27":["Dia Nacional do Motociclista"],
-  "07-28":["Dia do Agricultor","Dia Nacional de Enfrentamento"],
-  "07-30":["Mês Nacional do Combate ao"],
-  "08-01":["Dia Nacional do Maracatu","Dia Nacional dos Rosacruzes"],
+  "07-28":["Dia do Agricultor"],
+  // ── Agosto ──
+  "08-01":["Dia Nacional do Maracatu","Dia Nacional dos Rosacruzes","Início do Agosto Dourado (Aleitamento Materno)"],
   "08-02":["Dia Nacional da Natação","Dia Nacional da Saúde"],
-  "08-05":["Dia Nacional da Vigilância Sanitária","Dia Nacional dos"],
   "08-06":["Dia Nacional do Elos Internacional da Comunidade Lusíada"],
   "08-08":["Dia Nacional da Pessoa com Atrofia Muscular Espinhal (AME)"],
   "08-09":["Dia Nacional da Equoterapia"],
   "08-10":["Dia Nacional da Eubiose","Dia do Magistrado"],
-  "08-11":["Dia Nacional do Laringectomizado","Dia Nacional da Juventude"],
-  "08-12":["Dia Nacional dos Direitos Humanos"],
+  "08-11":["Dia Nacional do Laringectomizado","Dia do Advogado","Dia do Estudante"],
+  "08-12":["Dia Nacional dos Direitos Humanos","Dia Internacional da Juventude"],
+  "08-13":["Dia Internacional dos Canhotos"],
   "08-14":["Dia Nacional das Santas Casas de Misericórdia"],
-  "08-15":["Dia Nacional da Imigração Chinesa","Dia Nacional da Mulher"],
+  "08-15":["Dia Nacional da Imigração Chinesa","Dia Nacional da Mulher","Dia da Informática"],
   "08-18":["Dia Nacional do Campo Limpo","Dia Nacional da Aviação Agrícola","Dia da Integração Jurídica Latino-Americana"],
-  "08-19":["Dia Nacional do Historiador","Dia Nacional do Ciclista","Dia da Luta da População em Situação de Rua","Dia Nacional do Médico"],
-  "08-22":["Dia do Folclore","Dia Nacional da"],
+  "08-19":["Dia Nacional do Historiador","Dia Nacional do Ciclista","Dia da Luta da População em Situação de Rua","Dia Mundial da Fotografia","Dia do Fotógrafo"],
+  "08-22":["Dia do Folclore"],
   "08-24":["Dia da Legalidade"],
-  "08-25":["Dia Nacional da Educação Infantil FIxAS"],
+  "08-25":["Dia Nacional da Educação Infantil","Dia do Soldado","Dia do Feirante"],
   "08-27":["Dia Nacional do Psicólogo","Dia Nacional dos Bancários","Dia Nacional do Voluntariado"],
   "08-28":["Dia Nacional de Combate e Prevenção ao Escalpelamento","Dia Nacional de Combate ao Fumo"],
   "08-29":["Dia Nacional do Vaqueiro","Dia Nacional de Conscientização sobre a Esclerose Múltipla"],
-  "08-30":["Dia Nacional do Perdão","Dia Nacional do Conselheiro Comunitário de Segurança","Mês do Aleitamento Materno (Agosto Dourado)","Mês de Proteção à Mulher"],
+  "08-30":["Dia Nacional do Perdão","Dia Nacional do Conselheiro Comunitário de Segurança"],
+  "08-31":["Dia da Nutricionista"],
+  // ── Setembro ──
   "09-01":["Dia Nacional do Endocrinologista"],
   "09-03":["Dia do Guarda Civil","Dia do Oficial de Farmácia","Dia da Amazônia"],
-  "09-05":["Dia Nacional de Conscientização e Divulgação da Fibrose Cística","Independência do Brasil","Dia Nacional de"],
+  "09-05":["Dia Nacional de Conscientização e Divulgação da Fibrose Cística"],
   "09-07":["Independência do Brasil","Dia Nacional da Alfabetização"],
-  "09-08":["Dia Nacional do Terço dos Homens"],
-  "09-09":["Dia Nacional do Administrador"],
-  "09-11":["Dia Nacional do Cerrado","Dia Nacional de Luta"],
-  "09-16":["Dia Nacional da Identidade Civil","Dia Nacional do Transportador Rodoviário de Carga"],
-  "09-17":["Dia Nacional de Conscientização sobre as Distrofias Musculares","Dia da Televisão","Dia Nacional de"],
+  "09-08":["Dia Nacional do Terço dos Homens","Dia Mundial da Alfabetização"],
+  "09-09":["Dia Nacional do Administrador","Dia do Médico Veterinário"],
+  "09-11":["Dia Nacional do Cerrado"],
+  "09-13":["Dia do Programador","Dia da Cachaça"],
+  "09-15":["Dia do Cliente"],
+  "09-16":["Dia Nacional da Identidade Civil","Dia Nacional do Transportador Rodoviário de Carga","Dia Internacional da Camada de Ozônio"],
+  "09-17":["Dia Nacional de Conscientização sobre as Distrofias Musculares","Dia da Televisão"],
   "09-18":["Dia Nacional do Teatro Acessível: Arte, Prazer e Direitos"],
-  "09-19":["Dia Nacional do Educador Social","Dia Nacional dos"],
-  "09-20":["Dia Nacional de Luta da Pessoa Portadora de Deficiência","Dia Nacional de"],
-  "09-21":["Dia Nacional do Imigrante Grego FIxAS"],
-  "09-22":["Dia Nacional dos Profissionais de Nível Técnico","Dia Nacional dos Agentes da Autoridade de Trânsito","Dia Nacional da Educação"],
-  "09-23":["Dia Nacional da Conscientização sobre a Dermatite Atópica","Dia Nacional da Ikebana","Dia Nacional de Conscientização sobre"],
-  "09-25":["Dia Nacional do Rádio"],
+  "09-19":["Dia Nacional do Educador Social","Dia de São Januário"],
+  "09-20":["Dia Nacional de Luta da Pessoa Portadora de Deficiência"],
+  "09-21":["Dia Nacional do Imigrante Grego","Dia da Árvore","Dia do Fazendeiro"],
+  "09-22":["Dia Nacional dos Profissionais de Nível Técnico","Dia Nacional dos Agentes da Autoridade de Trânsito","Dia Nacional da Educação","Dia Mundial sem Carro"],
+  "09-23":["Dia Nacional da Conscientização sobre a Dermatite Atópica","Dia Nacional da Ikebana","Início da Primavera"],
+  "09-25":["Dia Nacional do Rádio","Dia Nacional do Trânsito"],
   "09-26":["Dia Nacional dos Surdos","Dia Nacional do Turismólogo e dos Profissionais do Turismo","Dia Nacional dos Vicentinos"],
-  "09-27":["Dia Nacional da Doação de Órgãos","Dia Nacional da Doença de Huntington"],
+  "09-27":["Dia Nacional da Doação de Órgãos","Dia Nacional da Doença de Huntington","Dia Mundial do Turismo"],
+  "09-28":["Lei do Ventre Livre","Dia Mundial de Combate à Raiva"],
+  "09-29":["Dia do Anjo da Guarda"],
+  "09-30":["Dia da Secretária","Dia da Bíblia"],
+  // ── Outubro ──
   "10-01":["Dia Nacional do Idoso","Dia Nacional do Pacifismo"],
-  "10-03":["Dia Nacional da Agroecologia","Dia Nacional do Agente Comunitário de Saúde","Dia Nacional do Paisagista","Dia Nacional dos Agentes"],
-  "10-04":["Dia Nacional do Rodeio","Dia Nacional do Agente de Segurança Socioeducativo","Dia da Ave"],
-  "10-05":["Dia Nacional da Cidadania","Dia Nacional do Rosário"],
+  "10-02":["Dia Internacional da Não-Violência"],
+  "10-03":["Dia Nacional da Agroecologia","Dia Nacional do Agente Comunitário de Saúde","Dia Nacional do Paisagista"],
+  "10-04":["Dia Nacional do Rodeio","Dia Nacional do Agente de Segurança Socioeducativo","Dia da Ave","Dia de São Francisco de Assis","Dia dos Animais"],
+  "10-05":["Dia Nacional da Cidadania","Dia Nacional do Rosário","Dia Mundial do Professor"],
   "10-07":["Dia Nacional do Combate a Cartéis"],
   "10-08":["Dia Nacional de Doação de Cordão Umbilical"],
-  "10-10":["Dia Nacional dos Direitos Fundamentais da Pessoa com Transtornos Mentais","Dia Nacional do Condutor de Ambulância","Dia Nacional de Prevenção"],
-  "10-11":["Dia de Festa da Criança Culto Público e Oficial a"],
+  "10-10":["Dia Nacional dos Direitos Fundamentais da Pessoa com Transtornos Mentais","Dia Nacional do Condutor de Ambulância"],
+  "10-11":["Dia de Festa da Criança"],
   "10-12":["Dia das Crianças","Nossa Senhora Aparecida, Padroeira do Brasil","Dia Nacional da Leitura","Dia Nacional do Fisioterapeuta"],
+  "10-13":["Dia do Fisioterapeuta e do Terapeuta Ocupacional"],
   "10-15":["Dia do Professor"],
-  "10-16":["Dia Nacional da Alimentação","Dia Nacional da Música"],
-  "10-17":["Dia Nacional do Distribuidor de"],
-  "10-18":["Dia da Inovação"],
-  "10-19":["Dia Nacional do Leiloeiro FIxAS"],
-  "10-20":["Dia Nacional da Filantropia","Dia Nacional de"],
+  "10-16":["Dia Nacional da Alimentação","Dia Nacional da Música","Dia do Anestesiologista"],
+  "10-18":["Dia da Inovação","Dia do Médico"],
+  "10-19":["Dia Nacional do Leiloeiro","Dia do Profissional de Informática"],
+  "10-20":["Dia Nacional da Filantropia"],
   "10-21":["Dia do Aviador"],
-  "10-23":["Dia Nacional do Plantio Direto","Dia Nacional da Saúde Bucal","Dia Nacional do Macarrão","Dia Nacional do Patrono da Construção Civil e"],
+  "10-23":["Dia Nacional do Plantio Direto","Dia Nacional da Saúde Bucal","Dia Nacional do Macarrão","Dia da Aviação (Santos Dumont)"],
+  "10-24":["Dia das Nações Unidas"],
   "10-25":["Dia Nacional de Combate ao Preconceito contra as Pessoas com Nanismo","Dia Nacional dos Trabalhadores Metroviários"],
-  "10-26":["Dia do Movimento Pestalozziano no Brasil","Dia Nacional de Luta pelos"],
+  "10-26":["Dia do Movimento Pestalozziano no Brasil"],
   "10-28":["Dia do Servidor Público"],
   "10-29":["Dia Nacional de Prevenção ao Acidente Vascular Cerebral (AVC)","Dia Nacional do Hematologista e do Hemoterapeuta"],
-  "10-30":["Dia do Comerciário","Dia Nacional da Poesia"],
-  "10-31":["Dia Nacional da Proclamação do Evangelho","Campanha Outubro Rosa Outubrinho Rosa"],
-  "11-02":["Finados","Dia de Finados","Dia Nacional do Quilo"],
-  "11-03":["Dia Nacional da Saúde Única","Dia da Cultura e da Ciência","Dia Nacional do Design","Dia Nacional da Língua"],
+  "10-30":["Dia do Comerciário","Dia Nacional da Poesia","Dia do Balconista"],
+  "10-31":["Dia Nacional da Proclamação do Evangelho","Campanha Outubro Rosa","Dia das Bruxas (Halloween)","Dia da Reforma Protestante"],
+  // ── Novembro ──
+  "11-02":["Finados","Dia Nacional do Quilo"],
+  "11-03":["Dia Nacional da Saúde Única","Dia da Cultura e da Ciência","Dia Nacional do Design","Dia do Cinema Brasileiro"],
   "11-05":["Dia do Técnico Agrícola","Dia Nacional do Interactiano"],
   "11-07":["Dia do Radialista","Dia Nacional do Urbanismo"],
   "11-08":["Dia Nacional do Médico Radiologista","Dia Nacional dos Clubes"],
   "11-10":["Dia do Intensivista","Dia Nacional do Inventor","Dia Nacional da Liberdade"],
-  "11-12":["Dia Nacional da Pessoa com Surdocegueira","Proclamação da República"],
+  "11-12":["Dia Nacional da Pessoa com Surdocegueira"],
+  "11-14":["Dia Mundial do Diabetes"],
   "11-15":["Proclamação da República","Dia Nacional da Umbanda"],
-  "11-16":["Dia Nacional da Amazônia Azul","Dia Nacional do Conselheiro Tutelar"],
-  "11-18":["Dia Nacional do Notário e do Registrador","Dia da Bandeira"],
-  "11-19":["Dia do Rei Pelé","Dia Nacional do Biomédico"],
-  "11-20":["Dia da Consciência Negra","Dia Nacional de Zumbi e da Consciência Negra","Dia Nacional do Compromisso"],
-  "11-21":["Dia da Música"],
-  "11-22":["Dia da Comunidade Libanesa no Brasil","Dia Nacional de Combate ao Câncer Infantil"],
-  "11-23":["Dia Nacional do Engenheiro Eletricista","Dia Nacional do"],
-  "11-25":["Dia Nacional do Samba de Roda","Dia Nacional dos"],
-  "11-26":["Dia Nacional de Luta contra o Câncer de Mama","Dia Nacional de"],
+  "11-16":["Dia Nacional da Amazônia Azul","Dia Nacional do Conselheiro Tutelar","Dia Internacional da Tolerância"],
+  "11-18":["Dia Nacional do Notário e do Registrador"],
+  "11-19":["Dia da Bandeira","Dia do Rei Pelé","Dia Nacional do Biomédico"],
+  "11-20":["Dia da Consciência Negra","Dia Nacional de Zumbi e da Consciência Negra"],
+  "11-21":["Dia da Música","Dia Mundial da Televisão"],
+  "11-22":["Dia da Comunidade Libanesa no Brasil","Dia Nacional de Combate ao Câncer Infantil","Dia do Músico (Santa Cecília)"],
+  "11-23":["Dia Nacional do Engenheiro Eletricista"],
+  "11-25":["Dia Nacional do Samba de Roda","Dia do Doador de Sangue","Dia Internacional pela Eliminação da Violência contra a Mulher"],
+  "11-26":["Dia Nacional de Luta contra o Câncer de Mama"],
   "11-27":["Dia Nacional de Combate ao Câncer","Dia da Amizade Brasil-Argentina"],
-  "11-30":["Dia Nacional do Evangélico"],
+  "11-30":["Dia Nacional do Evangélico","Novembro Azul — Saúde do Homem"],
+  // ── Dezembro ──
+  "12-01":["Dia Mundial de Combate à AIDS"],
   "12-02":["Dia Nacional da Astronomia","Dia Nacional de Combate à Pirataria e à Biopirataria"],
   "12-03":["Dia do Delegado de Polícia","Dia do Trabalhador nas Minas de Carvão"],
-  "12-04":["Dia Nacional do Perito Criminal","Dia Nacional do Policial Penal","Dia Nacional da"],
+  "12-04":["Dia Nacional do Perito Criminal","Dia Nacional do Policial Penal","Dia da Propaganda","Dia de Santa Bárbara"],
   "12-05":["Dia Nacional de Mobilização dos Homens pelo Fim da Violência contra as Mulheres"],
   "12-06":["Dia Nacional do Extensionista Rural","Dia Nacional da Assistência Social"],
   "12-07":["Dia Nacional da Silvicultura","Dia Consagrado à Justiça"],
-  "12-08":["Dia Nacional da Família"],
-  "12-09":["Dia Nacional do Fonoaudiólogo"],
-  "12-10":["Dia Nacional de Conscientização sobre as Doenças Crônicas","Dia Nacional das Apaes"],
-  "12-11":["Dia Nacional da Câmara Júnior","Dia do Plano Nacional"],
-  "12-12":["Dia do Cego"],
-  "12-13":["Dia Nacional do Forró","Dia Nacional do Ministério Público","Dia Nacional de"],
+  "12-08":["Dia Nacional da Família","Dia de Nossa Senhora da Conceição"],
+  "12-09":["Dia Nacional do Fonoaudiólogo","Dia da Justiça"],
+  "12-10":["Dia Nacional de Conscientização sobre as Doenças Crônicas","Dia Nacional das Apaes","Dia Internacional dos Direitos Humanos"],
+  "12-11":["Dia Nacional da Câmara Júnior"],
+  "12-12":["Dia do Cego","Dia do Engenheiro Florestal"],
+  "12-13":["Dia Nacional do Forró","Dia Nacional do Ministério Público","Dia de Santa Luzia"],
   "12-14":["Dia Nacional do Engenheiro de Pesca","Dia Nacional do Arquiteto e Urbanista"],
   "12-15":["Dia Nacional da Economia Solidária","Dia do Reservista"],
   "12-16":["Dia Nacional do Medicamento Biossimilar"],
-  "12-17":["Dia do Bioma Pampa FIxAS"],
+  "12-17":["Dia do Bioma Pampa"],
   "12-18":["Dia Nacional do Museólogo"],
-  "12-21":["Dia do Atleta"],
-  "12-24":["Dia do Órfão"],
+  "12-21":["Dia do Atleta","Início do Verão"],
+  "12-24":["Dia do Órfão","Véspera de Natal"],
   "12-25":["Natal","Dia da Marinha Mercante","Dia do Petroquímico"],
-  "12-28":["Dia de Mauá","Dia Nacional do Cooperativismo de Crédito"]
+  "12-28":["Dia de Mauá","Dia Nacional do Cooperativismo de Crédito"],
+  "12-31":["Véspera de Ano Novo (Réveillon)"]
 };
 const comemoracoesDe = (d) => COMEMORACOES[`${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`] || [];
-// frases de autocuidado / inspiração (originais — trocam a cada entrada)
+// frases do dia — mistura de autocuidado (sem autor) e frases de pessoas que
+// marcaram o mundo (com autor). Formato { t: texto, a: autor }. a vazio = sem autor.
 const FRASES = [
-  "Cuidar de si não é vaidade — é respeito por quem você é.",
-  "A autoestima se constrói nos pequenos cuidados de cada dia.",
-  "Respire fundo: hoje é um ótimo dia para se sentir bem.",
-  "Quem se cuida por fora também fortalece o que sente por dentro.",
-  "Um tempo para você não é luxo, é necessidade.",
-  "A melhor versão de você começa com um gesto de carinho consigo mesmo.",
-  "Sentir-se bem na própria pele muda o jeito de encarar o dia.",
-  "Pequenas pausas para se cuidar renovam a energia inteira.",
-  "Você merece sair daqui se sentindo mais leve e confiante.",
-  "Autoconfiança também se cultiva no espelho — comece por se gostar.",
-  "Cuidar da aparência é uma forma gentil de cuidar da mente.",
-  "Hoje, escolha se tratar com a mesma gentileza que oferece aos outros.",
-  "Um visual renovado é um bom começo para uma fase nova.",
-  "O cuidado de hoje é o bem-estar de amanhã.",
-  "Valorize-se: você é o seu projeto mais importante.",
+  // — autocuidado / aparência (originais) —
+  { t:"Cuidar de si não é vaidade — é respeito por quem você é.", a:"" },
+  { t:"A autoestima se constrói nos pequenos cuidados de cada dia.", a:"" },
+  { t:"Respire fundo: hoje é um ótimo dia para se sentir bem.", a:"" },
+  { t:"Quem se cuida por fora também fortalece o que sente por dentro.", a:"" },
+  { t:"Um tempo para você não é luxo, é necessidade.", a:"" },
+  { t:"A melhor versão de você começa com um gesto de carinho consigo mesmo.", a:"" },
+  { t:"Sentir-se bem na própria pele muda o jeito de encarar o dia.", a:"" },
+  { t:"Pequenas pausas para se cuidar renovam a energia inteira.", a:"" },
+  { t:"Você merece sair daqui se sentindo mais leve e confiante.", a:"" },
+  { t:"Autoconfiança também se cultiva no espelho — comece por se gostar.", a:"" },
+  { t:"Cuidar da aparência é uma forma gentil de cuidar da mente.", a:"" },
+  { t:"Hoje, escolha se tratar com a mesma gentileza que oferece aos outros.", a:"" },
+  { t:"Um visual renovado é um bom começo para uma fase nova.", a:"" },
+  { t:"O cuidado de hoje é o bem-estar de amanhã.", a:"" },
+  { t:"Valorize-se: você é o seu projeto mais importante.", a:"" },
+  // — pessoas que marcaram o mundo —
+  { t:"Somos aquilo que repetidamente fazemos. A excelência é um hábito.", a:"Aristóteles" },
+  { t:"Conhece-te a ti mesmo.", a:"Sócrates" },
+  { t:"Uma jornada de mil milhas começa com um único passo.", a:"Lao-Tsé" },
+  { t:"Onde quer que vá, vá com todo o seu coração.", a:"Confúcio" },
+  { t:"Não é porque as coisas são difíceis que não ousamos; é porque não ousamos que elas são difíceis.", a:"Sêneca" },
+  { t:"A simplicidade é o último grau de sofisticação.", a:"Leonardo da Vinci" },
+  { t:"A imaginação é mais importante que o conhecimento.", a:"Albert Einstein" },
+  { t:"No meio da dificuldade encontra-se a oportunidade.", a:"Albert Einstein" },
+  { t:"Seja a mudança que você quer ver no mundo.", a:"Mahatma Gandhi" },
+  { t:"Tudo parece impossível até que seja feito.", a:"Nelson Mandela" },
+  { t:"A melhor maneira de começar é parar de falar e começar a fazer.", a:"Walt Disney" },
+  { t:"Quer você pense que pode ou que não pode, você tem razão.", a:"Henry Ford" },
+  { t:"Um dia sem sorrir é um dia desperdiçado.", a:"Charles Chaplin" },
+  { t:"Investir em conhecimento rende sempre os melhores juros.", a:"Benjamin Franklin" },
+  { t:"Tudo vale a pena quando a alma não é pequena.", a:"Fernando Pessoa" },
+  { t:"Um país se faz com homens e livros.", a:"Monteiro Lobato" },
+  { t:"Enquanto esperamos viver, a vida vai passando.", a:"Sêneca" },
+  { t:"Se quer ir rápido, vá sozinho; se quer ir longe, vá acompanhado.", a:"Provérbio africano" },
+  { t:"Que teu alimento seja teu remédio.", a:"Hipócrates" },
 ];
 
 // fidelidade (mesma régua do painel): faixas por nº de visitas
@@ -573,6 +662,34 @@ const Primary = ({ children, onClick, disabled }) => {
   );
 };
 
+// Seletor de foto do cliente: avatar circular tocável. Abre câmera ou galeria
+// (no celular o próprio sistema oferece as duas opções). Mostra prévia e spinner.
+const FotoPicker = ({ fotoUrl, iniciais, enviando, onEscolher }) => {
+  const T = useT();
+  const inputRef = useRef(null);
+  return (
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:10}}>
+      <div onClick={()=>!enviando && inputRef.current && inputRef.current.click()}
+        style={{width:96,height:96,borderRadius:"50%",cursor:enviando?"default":"pointer",position:"relative",
+          background:fotoUrl?`#000 center/cover url(${fotoUrl})`:`linear-gradient(135deg,${T.brass},${T.brassDeep})`,
+          display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:700,fontSize:34,
+          border:`2px solid ${T.brassLine}`,boxShadow:T.shadowBtn,overflow:"hidden"}}>
+        {!fotoUrl && !enviando && (iniciais || "?")}
+        {enviando && <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,.45)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:600}}>Enviando…</div>}
+        {!enviando && (
+          <div style={{position:"absolute",right:0,bottom:0,width:30,height:30,borderRadius:"50%",background:T.brass,border:`2px solid ${T.bg}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14}}>📷</div>
+        )}
+      </div>
+      <button onClick={()=>!enviando && inputRef.current && inputRef.current.click()} className="aq-btn"
+        style={{background:"none",border:"none",color:T.brass,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:T.sans}}>
+        {fotoUrl ? "Trocar foto" : "Adicionar foto"}
+      </button>
+      <input ref={inputRef} type="file" accept="image/*" style={{display:"none"}}
+        onChange={(e)=>{ const f = e.target.files && e.target.files[0]; if (f) onEscolher(f); e.target.value=""; }}/>
+    </div>
+  );
+};
+
 // Editor de dependentes (filhos) — reutilizado no cadastro e na edição de perfil.
 // Recebe a lista (deps) e o setter (setDeps). Cada item: { nome, nascimento(yyyy-mm-dd) }.
 const DependentesEditor = ({ deps, setDeps }) => {
@@ -643,7 +760,7 @@ const BottomNav = ({ ativo, onNav }) => {
   const tabs = [
     { id:HOME,   icon:"home",     label:"Início"    },
     { id:1,      icon:"calendar", label:"Agendar"   },
-    { id:HIST,   icon:"clock",    label:"Histórico" },
+    { id:HIST,   icon:"clock",    label:"Agenda"    },
     { id:PERFIL, icon:"user",     label:"Perfil"    },
   ];
   return (
@@ -693,7 +810,10 @@ const InspiracaoCard = ({ fraseIdx }) => {
       <div style={{height:1,background:T.line,margin:"14px 0"}}/>
       <div style={{display:"flex",gap:10,alignItems:"flex-start"}}>
         <span style={{color:T.brass,fontSize:16,lineHeight:1.3}}>✦</span>
-        <p style={{margin:0,fontFamily:T.serif,fontStyle:"italic",fontSize:15.5,lineHeight:1.5,color:T.ink}}>{FRASES[fraseIdx % FRASES.length]}</p>
+        <div>
+          <p style={{margin:0,fontFamily:T.serif,fontStyle:"italic",fontSize:15.5,lineHeight:1.5,color:T.ink}}>{FRASES[fraseIdx % FRASES.length].t}</p>
+          {FRASES[fraseIdx % FRASES.length].a && <p style={{margin:"6px 0 0",fontSize:12.5,fontWeight:600,color:T.brass}}>— {FRASES[fraseIdx % FRASES.length].a}</p>}
+        </div>
       </div>
     </div>
   );
@@ -760,6 +880,8 @@ function Portal() {
   const [email, setEmail] = useState("");                          // Fatia A — obrigatório
   const [nascimento, setNascimento] = useState(""); // R2 — yyyy-mm-dd (formato do <input type=date>)
   const [dependentes, setDependentes] = useState([]); // [{nome, nascimento(yyyy-mm-dd)}]
+  const [fotoUrl, setFotoUrl] = useState("");          // foto do cliente (link do Drive)
+  const [enviandoFoto, setEnviandoFoto] = useState(false);
   const [paraQuem, setParaQuem] = useState(-1);        // -1 = titular; >=0 = índice do dependente
   const [obs, setObs] = useState("");
   const [salvandoPerfil, setSalvandoPerfil] = useState(false);     // Fatia A — tela de edição
@@ -834,6 +956,7 @@ function Portal() {
         setEmail(r.email || "");                                   // Fatia A: e-mail vindo do backend
         setNascimento(nascParaInput(r.nascimento));                // R2: pré-preenche se já existe
         setDependentes(depsParaEstado(r.dependentes || []));       // dependentes vindos do backend
+        setFotoUrl(r.foto || "");                                   // foto vinda do backend
         setVerificando(false);
         setStep(HOME);            // entra já na Área do Cliente
         carregarMeus(limpo);      // agendamentos carregam em segundo plano
@@ -867,6 +990,7 @@ function Portal() {
       return;
     }
     if (!emailValido(email)) { setErro("Informe um e-mail válido."); return; }  // Fatia A
+    if (!fotoUrl) { setErro("Adicione uma foto de perfil para concluir."); return; } // obrigatória
     setErro(""); setEnviando(true);
     try {
       const r = await api.agendar({
@@ -874,6 +998,7 @@ function Portal() {
         telefone: telLimpo(tel),
         nascimento: nascParaBackend(nascimento),                                 // R2 — DD/MM/AAAA pro backend
         email: email.trim(),                                                     // Fatia A
+        foto: fotoUrl,                                                            // foto do cliente
         dependentes: depsParaBackend(dependentes),                               // lista de filhos
         para: (paraQuem >= 0 && dependentes[paraQuem]) ? dependentes[paraQuem].nome : "", // p/ quem é o corte
         data: isoDate(dataSel), horario: horaSel,
@@ -882,7 +1007,7 @@ function Portal() {
       });
       if (r && r._demo) { setResultado({ demo:true }); setStep(6); }
       else if (r && r.requiresSinal) { setResultado(r); setStep(5); }
-      else if (r && (r.success || r.id)) { setResultado(r); setStep(6); }
+      else if (r && (r.success || r.id)) { setResultado(r); carregarMeus(telLimpo(tel)); setStep(6); }
       else { setErro((r && r.error) || "Não foi possível concluir. Tente outro horário."); }
     } catch (e) { setErro("Falha de conexão. Verifique sua internet e tente de novo."); }
     setEnviando(false);
@@ -915,12 +1040,26 @@ function Portal() {
     } catch (e) { setAviso({ tipo:"erro", txt:"Falha de conexão." }); }
   };
 
+  // ── foto do cliente: reduz, envia ao Drive e guarda o link ──
+  const escolherFoto = async (file) => {
+    setErro(""); setEnviandoFoto(true);
+    try {
+      const dataUrl = await reduzirImagem(file);
+      if (!ENV.hasBackend) { setFotoUrl(dataUrl); setEnviandoFoto(false); return; } // demo: usa local
+      const r = await api.uploadFoto(dataUrl);
+      if (r && r.success && r.url) setFotoUrl(r.url);
+      else setErro("Não consegui enviar a foto. Tente outra imagem.");
+    } catch (e) { setErro("Não consegui processar essa imagem. Tente outra."); }
+    setEnviandoFoto(false);
+  };
+
   // ── salvar perfil (Fatia A — tela Editar perfil) ──
   const salvarPerfil = async () => {
     if (!nome.trim()) { setErro("Informe seu nome."); return; }
     if (!sobrenome.trim()) { setErro("Informe seu sobrenome."); return; }
     if (!nascValido(nascimento)) { setErro("Informe uma data de nascimento válida."); return; }
     if (!emailValido(email)) { setErro("Informe um e-mail válido."); return; }
+    if (!fotoUrl) { setErro("Adicione uma foto de perfil."); return; }
     setErro(""); setSalvandoPerfil(true);
     try {
       const r = await api.atualizarPerfil({
@@ -929,12 +1068,13 @@ function Portal() {
         sobrenome: sobrenome.trim(),
         nascimento: nascParaBackend(nascimento),
         email: email.trim(),
+        foto: fotoUrl,
         dependentes: depsParaBackend(dependentes),
       });
       if (r && (r.success || r._demo)) {
         // atualiza clienteExistente local pra refletir mudança sem nova chamada
         const novoNomeCompleto = `${nome.trim()} ${sobrenome.trim()}`;
-        setClienteExistente(c => ({ ...(c||{}), nome: novoNomeCompleto, email: email.trim(), nascimento: nascParaBackend(nascimento) }));
+        setClienteExistente(c => ({ ...(c||{}), nome: novoNomeCompleto, email: email.trim(), nascimento: nascParaBackend(nascimento), foto: fotoUrl }));
         setAviso({ tipo:"ok", txt:"Perfil atualizado!" });
         setStep(PERFIL);
       } else {
@@ -955,7 +1095,7 @@ function Portal() {
   const resetTudo = () => {
     setStep(0); setTel(""); setServSel(null); setBarbSel(null); setDataSel(null); setHoraSel(null);
     setNome(""); setSobrenome(""); setEmail(""); setNascimento(""); setObs("");
-    setDependentes([]); setParaQuem(-1);
+    setDependentes([]); setParaQuem(-1); setFotoUrl("");
     setResultado(null); setClienteExistente(null); setReagendandoId(null);
     setMeusAgs([]); setAceito(false); setAviso(null);
   };
@@ -970,6 +1110,7 @@ function Portal() {
   // navegação da barra inferior
   const irPara = (destino) => {
     if (destino === 1) { setReagendandoId(null); setServSel(null); setBarbSel(null); }
+    if ((destino === HOME || destino === HIST) && tel && ENV.hasBackend) carregarMeus(telLimpo(tel));
     setStep(destino);
   };
 
@@ -1047,6 +1188,7 @@ function Portal() {
                 <div>
                   <div style={{color:T.brass,fontSize:10,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:4}}>Confirmado</div>
                   <div style={{color:T.ink,fontWeight:700,fontSize:17}}>{proximoAg.servico}</div>
+                  {proximoAg.para && <div style={{color:T.brass,fontSize:12.5,fontWeight:600,marginTop:3}}>Para: {proximoAg.para}</div>}
                   <div style={{color:T.muted,fontSize:12.5,marginTop:4}}>{labelData(proximoAg._d)} · {proximoAg._h}</div>
                 </div>
                 <div style={{width:44,height:44,borderRadius:12,background:T.brassTint,border:`1px solid ${T.brassLine}`,display:"flex",alignItems:"center",justifyContent:"center",color:T.brass}}><Icon name="scissors" size={22}/></div>
@@ -1100,7 +1242,7 @@ function Portal() {
       .sort((a,b)=>(b._d+b._h).localeCompare(a._d+a._h));
     return (
       <Shell onToggleTema={onToggleTema}>
-        <Header titulo="Seu histórico" sub={`${ordenados.length} agendamento${ordenados.length===1?"":"s"}`} onBack={()=>setStep(HOME)}/>
+        <Header titulo="Seus agendamentos" sub={`${ordenados.length} agendamento${ordenados.length===1?"":"s"}`} onBack={()=>setStep(HOME)}/>
         <div style={{padding:"8px 22px 0",display:"flex",flexDirection:"column",gap:10}}>
           {carregandoArea ? (
             <div style={{textAlign:"center",color:T.muted,fontSize:13,padding:"30px 0"}}>Carregando…</div>
@@ -1112,6 +1254,7 @@ function Portal() {
               <div key={i} style={{background:T.card,border:`1px solid ${T.line}`,borderRadius:14,padding:"14px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                 <div>
                   <div style={{color:T.ink,fontWeight:700,fontSize:14}}>{a.servico}</div>
+                  {a.para && <div style={{color:T.brass,fontSize:12,fontWeight:600,marginTop:2}}>Para: {a.para}</div>}
                   <div style={{color:T.muted,fontSize:12,marginTop:3}}>{labelData(a._d)} · {a._h}</div>
                 </div>
                 <div style={{display:"flex",alignItems:"center",gap:10}}>
@@ -1147,7 +1290,7 @@ function Portal() {
 
         <div style={{padding:"4px 22px 0"}}>
           <div style={{background:T.card,border:`1px solid ${T.line}`,borderRadius:16,padding:"18px",display:"flex",alignItems:"center",gap:14}}>
-            <div style={{width:54,height:54,borderRadius:"50%",background:`linear-gradient(135deg,${T.brass},${T.brassDeep})`,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:700,fontSize:22,flexShrink:0}}>{inic}</div>
+            <div style={{width:54,height:54,borderRadius:"50%",background:clienteExistente?.foto?`#000 center/cover url(${clienteExistente.foto})`:`linear-gradient(135deg,${T.brass},${T.brassDeep})`,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:700,fontSize:22,flexShrink:0,overflow:"hidden"}}>{clienteExistente?.foto?"":inic}</div>
             <div style={{flex:1,minWidth:0}}>
               <div style={{color:T.ink,fontWeight:700,fontSize:18}}>{clienteExistente?.nome || "—"}</div>
               <div style={{color:T.muted,fontSize:13,marginTop:2}}>{maskTel(tel)}</div>
@@ -1182,11 +1325,14 @@ function Portal() {
 
   // PASSO 10 — EDITAR PERFIL (Fatia A)
   if (step===EDITAR_PERFIL) {
-    const podeSalvar = !salvandoPerfil && nome.trim() && sobrenome.trim() && nascValido(nascimento) && emailValido(email);
+    const podeSalvar = !salvandoPerfil && !enviandoFoto && nome.trim() && sobrenome.trim() && nascValido(nascimento) && emailValido(email) && fotoUrl;
     return (
       <Shell onToggleTema={onToggleTema}>
         <Header titulo="Editar perfil" sub="Atualize seus dados — todos obrigatórios." onBack={()=>{ setErro(""); setStep(PERFIL); }}/>
         <div style={{padding:"4px 22px 0"}}>
+          <div style={{marginBottom:10,display:"flex",flexDirection:"column",alignItems:"center"}}>
+            <FotoPicker fotoUrl={fotoUrl} iniciais={(nome[0]||"?").toUpperCase()} enviando={enviandoFoto} onEscolher={escolherFoto}/>
+          </div>
           <div style={{marginTop:6}}>
             <label style={{fontSize:13,fontWeight:600,color:T.ink2}}>Nome</label>
             <input value={nome} onChange={(e)=>setNome(e.target.value)} placeholder="Ex.: João"
@@ -1373,7 +1519,11 @@ function Portal() {
             <span style={{fontFamily:T.serif,fontWeight:700,fontSize:22,color:T.brass}}>{money(servSel?.preco)}</span>
           </div>
         </div>
-        <div style={{marginTop:18}}>
+        <div style={{marginTop:6,marginBottom:4,display:"flex",flexDirection:"column",alignItems:"center"}}>
+          <FotoPicker fotoUrl={fotoUrl} iniciais={(nome[0]||"?").toUpperCase()} enviando={enviandoFoto} onEscolher={escolherFoto}/>
+          <div style={{fontSize:11,color:T.muted,marginTop:4,textAlign:"center"}}>Foto de perfil (obrigatória) — ajuda no seu reconhecimento.</div>
+        </div>
+        <div style={{marginTop:14}}>
           <label style={{fontSize:13,fontWeight:600,color:T.ink2}}>Nome</label>
           <input value={nome} onChange={(e)=>setNome(e.target.value)} placeholder="Ex.: João" autoFocus={!nome}
             style={{width:"100%",marginTop:8,padding:"14px 16px",fontSize:16,borderRadius:13,border:`1.5px solid ${T.line}`,background:T.card,fontFamily:T.sans,outline:"none",color:T.ink}}
@@ -1412,7 +1562,7 @@ function Portal() {
         </div>
         {erro && <div style={{color:T.danger,fontSize:13,marginTop:12}}>{erro}</div>}
       </div>
-      <Bottom comBarra={!reagendandoId}><Primary onClick={confirmar} disabled={enviando||!nome.trim()||!sobrenome.trim()||!nascValido(nascimento)||!emailValido(email)}>{enviando?"Confirmando…":"Confirmar agendamento"}</Primary></Bottom>
+      <Bottom comBarra={!reagendandoId}><Primary onClick={confirmar} disabled={enviando||enviandoFoto||!nome.trim()||!sobrenome.trim()||!nascValido(nascimento)||!emailValido(email)||!fotoUrl}>{enviando?"Confirmando…":"Confirmar agendamento"}</Primary></Bottom>
       {!reagendandoId && (<>
         <div style={{height:80}}/>
         <BottomNav ativo={1} onNav={irPara} />
