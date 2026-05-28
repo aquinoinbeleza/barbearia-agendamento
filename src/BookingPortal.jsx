@@ -243,6 +243,15 @@ const depsParaEstado = (arr) => (Array.isArray(arr) ? arr : [])
   .filter(d => d && String(d.nome||"").trim())
   .map(d => ({ nome: String(d.nome).trim(), nascimento: nascParaInput(d.nascimento) }));
 
+// Mostra a data de nascimento sempre como DD/MM/AAAA, não importa se veio como
+// "21/12/1990", "1990-12-21" ou "1990-12-21T02:00:00.000Z" (data da planilha).
+const nascBR = (v) => {
+  const iso = nascParaInput(v);                 // normaliza p/ yyyy-mm-dd
+  if (!iso) return "—";
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : "—";
+};
+
 
 // ─── INSPIRAÇÃO DO DIA ──────────────────────────────────────────────────
 const DIAS_L = ["Domingo","Segunda-feira","Terça-feira","Quarta-feira","Quinta-feira","Sexta-feira","Sábado"];
@@ -1304,9 +1313,24 @@ function Portal() {
               <button onClick={()=>{ setErro(""); setStep(EDITAR_PERFIL); }} className="aq-btn" style={{background:"none",border:"none",color:T.brass,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:T.sans,padding:0}}>Editar ✎</button>
             </div>
             <Linha label="Nome" valor={clienteExistente?.nome || "—"}/>
-            <Linha label="Nascimento" valor={clienteExistente?.nascimento || "—"}/>
+            {calcIdade(nascParaInput(clienteExistente?.nascimento)) && <Linha label="Idade" valor={calcIdade(nascParaInput(clienteExistente?.nascimento))}/>}
+            <Linha label="Nascimento" valor={nascBR(clienteExistente?.nascimento)}/>
             <Linha label="E-mail" valor={clienteExistente?.email || "—"}/>
           </div>
+
+          {/* Dependentes — nome, idade e nascimento (sem e-mail) */}
+          {dependentes.length > 0 && (
+            <div style={{background:T.card,border:`1px solid ${T.line}`,borderRadius:16,padding:"16px 18px",marginTop:12}}>
+              <div style={{color:T.muted,fontSize:11,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:8}}>Dependentes</div>
+              {dependentes.map((d,i)=>(
+                <div key={i} style={{paddingBottom:i<dependentes.length-1?12:0,marginBottom:i<dependentes.length-1?12:0,borderBottom:i<dependentes.length-1?`1px dashed ${T.line}`:"none"}}>
+                  <div style={{color:T.ink,fontWeight:700,fontSize:15,marginBottom:4}}>{d.nome}</div>
+                  {calcIdade(d.nascimento) && <Linha label="Idade" valor={calcIdade(d.nascimento)}/>}
+                  <Linha label="Nascimento" valor={nascBR(d.nascimento)}/>
+                </div>
+              ))}
+            </div>
+          )}
 
           <div style={{background:T.card,border:`1px solid ${T.line}`,borderRadius:16,padding:"16px 18px",marginTop:12}}>
             <Linha label="Nível de fidelidade" valor={`✦ ${fid.nivel}`}/>
