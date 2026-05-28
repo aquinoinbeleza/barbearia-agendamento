@@ -39,6 +39,7 @@ const api = {
   agendar:  (payload) => api._post({ action: "agendamento", requestId: `req_${Date.now()}_${Math.random().toString(36).slice(2,9)}`, ...payload }),
   cancelar: (agendamentoId, tel) => api._post({ action: "cancelar", agendamentoId, tel }),
   reagendar:(agendamentoId, data, hora, tel) => api._post({ action: "reagendar", agendamentoId, novoHorario: { data, hora }, tel }),
+  atualizarPerfil: (payload) => api._post({ action: "atualizarPerfil", ...payload }),
 };
 
 // ─── DADOS DEMO (sem backend) ───────────────────────────────────────────
@@ -178,6 +179,17 @@ const nascValido = (v) => {                  // valida data plausível (não fut
   const anos = (hj - d) / (1000*60*60*24*365.25);
   return anos >= 5 && anos <= 110;
 };
+
+// ─── PERFIL: NOME + SOBRENOME + EMAIL ───────────────────────────────────
+// O backend tem só uma coluna NOME. Pra UX, dividimos em dois campos no portal
+// e juntamos novamente antes de enviar. Email tem validação simples (não exagerada).
+const dividirNome = (nomeCompleto) => {       // "Vinícius Aquino Silva" → ["Vinícius","Aquino Silva"]
+  const partes = String(nomeCompleto||"").trim().split(/\s+/);
+  if (partes.length === 0 || partes[0] === "") return ["",""];
+  if (partes.length === 1) return [partes[0], ""];
+  return [partes[0], partes.slice(1).join(" ")];
+};
+const emailValido = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v||"").trim());
 
 // ─── INSPIRAÇÃO DO DIA ──────────────────────────────────────────────────
 const DIAS_L = ["Domingo","Segunda-feira","Terça-feira","Quarta-feira","Quinta-feira","Sexta-feira","Sábado"];
@@ -662,7 +674,7 @@ const LegalModal = ({ tipo, onClose }) => {
 };
 
 // ════════════════════════════════════════════════════════════════════════
-const HOME = 7, HIST = 8, PERFIL = 9;
+const HOME = 7, HIST = 8, PERFIL = 9, EDITAR_PERFIL = 10;
 
 function Portal() {
   const T = useT();
@@ -670,8 +682,11 @@ function Portal() {
   const [tel, setTel] = useState("");
   const [clienteExistente, setClienteExistente] = useState(null);
   const [nome, setNome] = useState("");
+  const [sobrenome, setSobrenome] = useState("");                 // Fatia A — separado para UX
+  const [email, setEmail] = useState("");                          // Fatia A — obrigatório
   const [nascimento, setNascimento] = useState(""); // R2 — yyyy-mm-dd (formato do <input type=date>)
   const [obs, setObs] = useState("");
+  const [salvandoPerfil, setSalvandoPerfil] = useState(false);     // Fatia A — tela de edição
   const [servicos, setServicos] = useState([]);
   const [barbeiros, setBarbeiros] = useState([]);
   const [servSel, setServSel] = useState(null);
@@ -736,8 +751,12 @@ function Portal() {
     try {
       const r = await api.verificarCliente(limpo);
       if (r && r.encontrado) {
-        setClienteExistente(r); setNome(r.nome || "");
-        setNascimento(nascParaInput(r.nascimento)); // R2: pré-preenche se já existe no cadastro
+        const [pn, sn] = dividirNome(r.nome || "");
+        setClienteExistente(r);
+        setNome(pn);
+        setSobrenome(sn);                                          // Fatia A: separa de uma vez
+        setEmail(r.email || "");                                   // Fatia A: e-mail vindo do backend
+        setNascimento(nascParaInput(r.nascimento));                // R2: pré-preenche se já existe
         setVerificando(false);
         setStep(HOME);            // entra já na Área do Cliente
         carregarMeus(limpo);      // agendamentos carregam em segundo plano
@@ -765,15 +784,19 @@ function Portal() {
   // ── enviar agendamento ──
   const confirmar = async () => {
     if (!nome.trim()) { setErro("Por favor, informe seu nome."); return; }
-    if (!nascValido(nascimento)) {                                 // R2 — obrigatório
+    if (!sobrenome.trim()) { setErro("Informe seu sobrenome."); return; }       // Fatia A
+    if (!nascValido(nascimento)) {                                              // R2 — obrigatório
       setErro("Informe uma data de nascimento válida.");
       return;
     }
+    if (!emailValido(email)) { setErro("Informe um e-mail válido."); return; }  // Fatia A
     setErro(""); setEnviando(true);
     try {
       const r = await api.agendar({
-        nome: nome.trim(), telefone: telLimpo(tel),
-        nascimento: nascParaBackend(nascimento),                   // R2 — DD/MM/AAAA pro backend
+        nome: `${nome.trim()} ${sobrenome.trim()}`,                              // junta antes de mandar
+        telefone: telLimpo(tel),
+        nascimento: nascParaBackend(nascimento),                                 // R2 — DD/MM/AAAA pro backend
+        email: email.trim(),                                                     // Fatia A
         data: isoDate(dataSel), horario: horaSel,
         servico: { nome: servSel.nome, duracao: servSel.duracao, preco: servSel.preco },
         barbeiro: barbSel ? barbSel.nome : "", observacao: obs.trim(),
@@ -813,6 +836,34 @@ function Portal() {
     } catch (e) { setAviso({ tipo:"erro", txt:"Falha de conexão." }); }
   };
 
+  // ── salvar perfil (Fatia A — tela Editar perfil) ──
+  const salvarPerfil = async () => {
+    if (!nome.trim()) { setErro("Informe seu nome."); return; }
+    if (!sobrenome.trim()) { setErro("Informe seu sobrenome."); return; }
+    if (!nascValido(nascimento)) { setErro("Informe uma data de nascimento válida."); return; }
+    if (!emailValido(email)) { setErro("Informe um e-mail válido."); return; }
+    setErro(""); setSalvandoPerfil(true);
+    try {
+      const r = await api.atualizarPerfil({
+        tel: telLimpo(tel),
+        nome: nome.trim(),
+        sobrenome: sobrenome.trim(),
+        nascimento: nascParaBackend(nascimento),
+        email: email.trim(),
+      });
+      if (r && (r.success || r._demo)) {
+        // atualiza clienteExistente local pra refletir mudança sem nova chamada
+        const novoNomeCompleto = `${nome.trim()} ${sobrenome.trim()}`;
+        setClienteExistente(c => ({ ...(c||{}), nome: novoNomeCompleto, email: email.trim(), nascimento: nascParaBackend(nascimento) }));
+        setAviso({ tipo:"ok", txt:"Perfil atualizado!" });
+        setStep(PERFIL);
+      } else {
+        setErro((r && r.error) || "Não foi possível salvar. Tente novamente.");
+      }
+    } catch (e) { setErro("Falha de conexão. Tente novamente."); }
+    setSalvandoPerfil(false);
+  };
+
   // iniciar reagendamento de um agendamento
   const iniciarReagendar = (ag) => {
     setReagendandoId(ag.id);
@@ -823,7 +874,8 @@ function Portal() {
 
   const resetTudo = () => {
     setStep(0); setTel(""); setServSel(null); setBarbSel(null); setDataSel(null); setHoraSel(null);
-    setNome(""); setNascimento(""); setObs(""); setResultado(null); setClienteExistente(null); setReagendandoId(null);
+    setNome(""); setSobrenome(""); setEmail(""); setNascimento(""); setObs("");
+    setResultado(null); setClienteExistente(null); setReagendandoId(null);
     setMeusAgs([]); setAceito(false); setAviso(null);
   };
 
@@ -995,14 +1047,36 @@ function Portal() {
     return (
       <Shell onToggleTema={onToggleTema}>
         <Header titulo="Seu perfil" onBack={()=>setStep(HOME)}/>
+
+        {aviso && (
+          <div style={{margin:"4px 22px 0",padding:"11px 14px",borderRadius:12,fontSize:13,
+            background:aviso.tipo==="ok"?T.brassTint:`${T.danger}1a`,color:aviso.tipo==="ok"?T.brass:T.danger,
+            display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
+            <span>{aviso.txt}</span>
+            <button onClick={()=>setAviso(null)} style={{background:"none",border:"none",color:"inherit",cursor:"pointer",fontSize:15}}>✕</button>
+          </div>
+        )}
+
         <div style={{padding:"4px 22px 0"}}>
           <div style={{background:T.card,border:`1px solid ${T.line}`,borderRadius:16,padding:"18px",display:"flex",alignItems:"center",gap:14}}>
             <div style={{width:54,height:54,borderRadius:"50%",background:`linear-gradient(135deg,${T.brass},${T.brassDeep})`,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:700,fontSize:22,flexShrink:0}}>{inic}</div>
-            <div>
+            <div style={{flex:1,minWidth:0}}>
               <div style={{color:T.ink,fontWeight:700,fontSize:18}}>{clienteExistente?.nome || "—"}</div>
               <div style={{color:T.muted,fontSize:13,marginTop:2}}>{maskTel(tel)}</div>
             </div>
           </div>
+
+          {/* Seus dados — leitura. Editar abre tela própria */}
+          <div style={{background:T.card,border:`1px solid ${T.line}`,borderRadius:16,padding:"16px 18px",marginTop:12}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+              <span style={{color:T.muted,fontSize:11,letterSpacing:"0.12em",textTransform:"uppercase"}}>Seus dados</span>
+              <button onClick={()=>{ setErro(""); setStep(EDITAR_PERFIL); }} className="aq-btn" style={{background:"none",border:"none",color:T.brass,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:T.sans,padding:0}}>Editar ✎</button>
+            </div>
+            <Linha label="Nome" valor={clienteExistente?.nome || "—"}/>
+            <Linha label="Nascimento" valor={clienteExistente?.nascimento || "—"}/>
+            <Linha label="E-mail" valor={clienteExistente?.email || "—"}/>
+          </div>
+
           <div style={{background:T.card,border:`1px solid ${T.line}`,borderRadius:16,padding:"16px 18px",marginTop:12}}>
             <Linha label="Nível de fidelidade" valor={`✦ ${fid.nivel}`}/>
             <Linha label="Visitas" valor={`${fid.visitas}`}/>
@@ -1013,6 +1087,52 @@ function Portal() {
           </div>
         </div>
         <div style={{height:88}}/>
+        <BottomNav ativo={PERFIL} onNav={irPara} />
+      </Shell>
+    );
+  }
+
+  // PASSO 10 — EDITAR PERFIL (Fatia A)
+  if (step===EDITAR_PERFIL) {
+    const podeSalvar = !salvandoPerfil && nome.trim() && sobrenome.trim() && nascValido(nascimento) && emailValido(email);
+    return (
+      <Shell onToggleTema={onToggleTema}>
+        <Header titulo="Editar perfil" sub="Atualize seus dados — todos obrigatórios." onBack={()=>{ setErro(""); setStep(PERFIL); }}/>
+        <div style={{padding:"4px 22px 0"}}>
+          <div style={{marginTop:6}}>
+            <label style={{fontSize:13,fontWeight:600,color:T.ink2}}>Nome</label>
+            <input value={nome} onChange={(e)=>setNome(e.target.value)} placeholder="Ex.: João"
+              style={{width:"100%",marginTop:8,padding:"14px 16px",fontSize:16,borderRadius:13,border:`1.5px solid ${T.line}`,background:T.card,fontFamily:T.sans,outline:"none",color:T.ink}}
+              onFocus={(e)=>e.target.style.borderColor=T.brass} onBlur={(e)=>e.target.style.borderColor=T.line}/>
+          </div>
+          <div style={{marginTop:14}}>
+            <label style={{fontSize:13,fontWeight:600,color:T.ink2}}>Sobrenome</label>
+            <input value={sobrenome} onChange={(e)=>setSobrenome(e.target.value)} placeholder="Ex.: Silva"
+              style={{width:"100%",marginTop:8,padding:"14px 16px",fontSize:16,borderRadius:13,border:`1.5px solid ${T.line}`,background:T.card,fontFamily:T.sans,outline:"none",color:T.ink}}
+              onFocus={(e)=>e.target.style.borderColor=T.brass} onBlur={(e)=>e.target.style.borderColor=T.line}/>
+          </div>
+          <div style={{marginTop:14}}>
+            <label style={{fontSize:13,fontWeight:600,color:T.ink2}}>Data de nascimento</label>
+            <input value={nascimento} onChange={(e)=>setNascimento(e.target.value)} type="date" max={hojeISO()} min="1900-01-01"
+              style={{width:"100%",marginTop:8,padding:"14px 16px",fontSize:16,borderRadius:13,border:`1.5px solid ${T.line}`,background:T.card,fontFamily:T.sans,outline:"none",color:T.ink,colorScheme:T.name==="dark"?"dark":"light"}}
+              onFocus={(e)=>e.target.style.borderColor=T.brass} onBlur={(e)=>e.target.style.borderColor=T.line}/>
+          </div>
+          <div style={{marginTop:14}}>
+            <label style={{fontSize:13,fontWeight:600,color:T.ink2}}>E-mail</label>
+            <input value={email} onChange={(e)=>setEmail(e.target.value)} type="email" inputMode="email" autoComplete="email" placeholder="seu@email.com"
+              style={{width:"100%",marginTop:8,padding:"14px 16px",fontSize:16,borderRadius:13,border:`1.5px solid ${T.line}`,background:T.card,fontFamily:T.sans,outline:"none",color:T.ink}}
+              onFocus={(e)=>e.target.style.borderColor=T.brass} onBlur={(e)=>e.target.style.borderColor=T.line}/>
+          </div>
+          <div style={{marginTop:14}}>
+            <label style={{fontSize:13,fontWeight:600,color:T.ink2}}>WhatsApp</label>
+            <input value={maskTel(tel)} readOnly
+              style={{width:"100%",marginTop:8,padding:"14px 16px",fontSize:16,borderRadius:13,border:`1.5px solid ${T.line}`,background:T.bg1,fontFamily:T.sans,outline:"none",color:T.muted,cursor:"not-allowed"}}/>
+            <div style={{fontSize:11,color:T.muted,marginTop:6}}>Para mudar o WhatsApp, use “Sair / trocar de número” na tela anterior.</div>
+          </div>
+          {erro && <div style={{color:T.danger,fontSize:13,marginTop:12}}>{erro}</div>}
+        </div>
+        <Bottom comBarra><Primary onClick={salvarPerfil} disabled={!podeSalvar}>{salvandoPerfil?"Salvando…":"Salvar alterações"}</Primary></Bottom>
+        <div style={{height:80}}/>
         <BottomNav ativo={PERFIL} onNav={irPara} />
       </Shell>
     );
@@ -1146,8 +1266,14 @@ function Portal() {
           </div>
         </div>
         <div style={{marginTop:18}}>
-          <label style={{fontSize:13,fontWeight:600,color:T.ink2}}>Seu nome completo</label>
-          <input value={nome} onChange={(e)=>setNome(e.target.value)} placeholder="Ex.: João Silva" autoFocus={!nome}
+          <label style={{fontSize:13,fontWeight:600,color:T.ink2}}>Nome</label>
+          <input value={nome} onChange={(e)=>setNome(e.target.value)} placeholder="Ex.: João" autoFocus={!nome}
+            style={{width:"100%",marginTop:8,padding:"14px 16px",fontSize:16,borderRadius:13,border:`1.5px solid ${T.line}`,background:T.card,fontFamily:T.sans,outline:"none",color:T.ink}}
+            onFocus={(e)=>e.target.style.borderColor=T.brass} onBlur={(e)=>e.target.style.borderColor=T.line}/>
+        </div>
+        <div style={{marginTop:14}}>
+          <label style={{fontSize:13,fontWeight:600,color:T.ink2}}>Sobrenome</label>
+          <input value={sobrenome} onChange={(e)=>setSobrenome(e.target.value)} placeholder="Ex.: Silva"
             style={{width:"100%",marginTop:8,padding:"14px 16px",fontSize:16,borderRadius:13,border:`1.5px solid ${T.line}`,background:T.card,fontFamily:T.sans,outline:"none",color:T.ink}}
             onFocus={(e)=>e.target.style.borderColor=T.brass} onBlur={(e)=>e.target.style.borderColor=T.line}/>
         </div>
@@ -1164,6 +1290,12 @@ function Portal() {
           <div style={{fontSize:11,color:T.muted,marginTop:6}}>Usamos para mensagem de aniversário e cuidados específicos.</div>
         </div>
         <div style={{marginTop:14}}>
+          <label style={{fontSize:13,fontWeight:600,color:T.ink2}}>E-mail</label>
+          <input value={email} onChange={(e)=>setEmail(e.target.value)} placeholder="seu@email.com" type="email" inputMode="email" autoComplete="email"
+            style={{width:"100%",marginTop:8,padding:"14px 16px",fontSize:16,borderRadius:13,border:`1.5px solid ${T.line}`,background:T.card,fontFamily:T.sans,outline:"none",color:T.ink}}
+            onFocus={(e)=>e.target.style.borderColor=T.brass} onBlur={(e)=>e.target.style.borderColor=T.line}/>
+        </div>
+        <div style={{marginTop:14}}>
           <label style={{fontSize:13,fontWeight:600,color:T.ink2}}>Observação <span style={{color:T.muted,fontWeight:400}}>(opcional)</span></label>
           <input value={obs} onChange={(e)=>setObs(e.target.value)} placeholder="Algum pedido especial?"
             style={{width:"100%",marginTop:8,padding:"14px 16px",fontSize:15,borderRadius:13,border:`1.5px solid ${T.line}`,background:T.card,fontFamily:T.sans,outline:"none",color:T.ink}}
@@ -1171,7 +1303,7 @@ function Portal() {
         </div>
         {erro && <div style={{color:T.danger,fontSize:13,marginTop:12}}>{erro}</div>}
       </div>
-      <Bottom comBarra={!reagendandoId}><Primary onClick={confirmar} disabled={enviando||!nome.trim()||!nascValido(nascimento)}>{enviando?"Confirmando…":"Confirmar agendamento"}</Primary></Bottom>
+      <Bottom comBarra={!reagendandoId}><Primary onClick={confirmar} disabled={enviando||!nome.trim()||!sobrenome.trim()||!nascValido(nascimento)||!emailValido(email)}>{enviando?"Confirmando…":"Confirmar agendamento"}</Primary></Bottom>
       {!reagendandoId && (<>
         <div style={{height:80}}/>
         <BottomNav ativo={1} onNav={irPara} />
