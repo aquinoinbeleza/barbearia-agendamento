@@ -191,6 +191,34 @@ const dividirNome = (nomeCompleto) => {       // "Vinícius Aquino Silva" → ["
 };
 const emailValido = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v||"").trim());
 
+// ─── DEPENDENTES (filhos) ───────────────────────────────────────────────
+// No estado guardamos nascimento como "yyyy-mm-dd" (formato do <input date>).
+// Pro backend convertemos cada um para "DD/MM/AAAA".
+const calcIdade = (nascISO) => {              // "yyyy-mm-dd" → "7 anos" / "8 meses" / ""
+  if (!nascISO) return "";
+  const m = String(nascISO).match(/^(\d{4})-(\d{2})-(\d{2})/); if (!m) return "";
+  const n = new Date(Number(m[1]), Number(m[2])-1, Number(m[3]));
+  if (isNaN(n.getTime())) return "";
+  const hj = new Date(); hj.setHours(0,0,0,0);
+  if (n > hj) return "";
+  let anos = hj.getFullYear() - n.getFullYear();
+  const fezAniv = (hj.getMonth() > n.getMonth()) || (hj.getMonth() === n.getMonth() && hj.getDate() >= n.getDate());
+  if (!fezAniv) anos--;
+  if (anos >= 2) return `${anos} anos`;
+  if (anos === 1) return "1 ano";
+  let meses = (hj.getFullYear()-n.getFullYear())*12 + (hj.getMonth()-n.getMonth());
+  if (hj.getDate() < n.getDate()) meses--;
+  meses = Math.max(0, meses);
+  return meses === 1 ? "1 mês" : `${meses} meses`;
+};
+const depsParaBackend = (arr) => (Array.isArray(arr) ? arr : [])
+  .filter(d => d && String(d.nome||"").trim())
+  .map(d => ({ nome: String(d.nome).trim(), nascimento: nascParaBackend(d.nascimento) }));
+const depsParaEstado = (arr) => (Array.isArray(arr) ? arr : [])
+  .filter(d => d && String(d.nome||"").trim())
+  .map(d => ({ nome: String(d.nome).trim(), nascimento: nascParaInput(d.nascimento) }));
+
+
 // ─── INSPIRAÇÃO DO DIA ──────────────────────────────────────────────────
 const DIAS_L = ["Domingo","Segunda-feira","Terça-feira","Quarta-feira","Quinta-feira","Sexta-feira","Sábado"];
 const dataExtenso = (d) => `${DIAS_L[d.getDay()]}, ${d.getDate()} de ${MESES_L[d.getMonth()]} de ${d.getFullYear()}`;
@@ -482,6 +510,10 @@ const Shell = ({ children, step, total, onToggleTema }) => {
     <div style={{minHeight:"100dvh",background:T.bg,fontFamily:T.sans,color:T.ink,display:"flex",flexDirection:"column",alignItems:"center",transition:"background .3s, color .3s"}}>
       <style>{`
         @keyframes aqUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+        /* Reserva o espaço da barra de rolagem mesmo quando a tela é curta.
+           Sem isso, telas curtas (ex.: Histórico vazio) perdem a barra, a
+           janela alarga ~15px e a BottomNav (centralizada) "pula" pro lado. */
+        html{scrollbar-gutter:stable;overflow-y:scroll}
         *{box-sizing:border-box}
         .aq-btn:active{transform:scale(.98)}
         .aq-card-pick{transition:all .18s cubic-bezier(.4,0,.2,1)}
@@ -540,6 +572,48 @@ const Primary = ({ children, onClick, disabled }) => {
     }}>{children}</button>
   );
 };
+
+// Editor de dependentes (filhos) — reutilizado no cadastro e na edição de perfil.
+// Recebe a lista (deps) e o setter (setDeps). Cada item: { nome, nascimento(yyyy-mm-dd) }.
+const DependentesEditor = ({ deps, setDeps }) => {
+  const T = useT();
+  const ligado = deps.length > 0;
+  const inputBase = {width:"100%",padding:"12px 14px",fontSize:15,borderRadius:11,border:`1.5px solid ${T.line}`,background:T.card,fontFamily:T.sans,outline:"none",color:T.ink};
+  const setCampo = (i, campo, val) => setDeps(deps.map((d,idx)=> idx===i ? {...d,[campo]:val} : d));
+  const remover = (i) => setDeps(deps.filter((_,idx)=>idx!==i));
+  const adicionar = () => setDeps([...deps, {nome:"",nascimento:""}]);
+  return (
+    <div style={{marginTop:14,background:T.bg1,border:`1px solid ${T.line}`,borderRadius:14,padding:"14px 14px 4px"}}>
+      <label style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer"}}>
+        <input type="checkbox" checked={ligado} onChange={(e)=> e.target.checked ? adicionar() : setDeps([])}
+          style={{width:18,height:18,accentColor:T.brass,cursor:"pointer",flexShrink:0}}/>
+        <span style={{fontSize:14,fontWeight:600,color:T.ink2}}>Tenho dependentes que também atendo aqui</span>
+      </label>
+      {ligado && (
+        <div style={{marginTop:12}}>
+          {deps.map((d,i)=>{
+            const idade = calcIdade(d.nascimento);
+            return (
+              <div key={i} style={{marginBottom:12,paddingBottom:12,borderBottom:i<deps.length-1?`1px dashed ${T.line}`:"none"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                  <span style={{fontSize:12,fontWeight:700,color:T.muted}}>Dependente {i+1}{idade?` · ${idade}`:""}</span>
+                  <button onClick={()=>remover(i)} className="aq-btn" style={{background:"none",border:"none",color:T.danger,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:T.sans,padding:0}}>Remover</button>
+                </div>
+                <input value={d.nome} onChange={(e)=>setCampo(i,"nome",e.target.value)} placeholder="Nome do dependente"
+                  style={inputBase} onFocus={(e)=>e.target.style.borderColor=T.brass} onBlur={(e)=>e.target.style.borderColor=T.line}/>
+                <input value={d.nascimento} onChange={(e)=>setCampo(i,"nascimento",e.target.value)} type="date" max={hojeISO()} min="1900-01-01"
+                  style={{...inputBase,marginTop:8,colorScheme:T.name==="dark"?"dark":"light"}}
+                  onFocus={(e)=>e.target.style.borderColor=T.brass} onBlur={(e)=>e.target.style.borderColor=T.line}/>
+              </div>
+            );
+          })}
+          <button onClick={adicionar} className="aq-btn" style={{width:"100%",padding:"11px",marginBottom:10,borderRadius:11,border:`1.5px dashed ${T.line}`,background:"transparent",color:T.brass,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:T.sans}}>+ Adicionar outro dependente</button>
+        </div>
+      )}
+    </div>
+  );
+};
+
 
 const Bottom = ({ children, comBarra }) => {
   const T = useT();
@@ -685,6 +759,8 @@ function Portal() {
   const [sobrenome, setSobrenome] = useState("");                 // Fatia A — separado para UX
   const [email, setEmail] = useState("");                          // Fatia A — obrigatório
   const [nascimento, setNascimento] = useState(""); // R2 — yyyy-mm-dd (formato do <input type=date>)
+  const [dependentes, setDependentes] = useState([]); // [{nome, nascimento(yyyy-mm-dd)}]
+  const [paraQuem, setParaQuem] = useState(-1);        // -1 = titular; >=0 = índice do dependente
   const [obs, setObs] = useState("");
   const [salvandoPerfil, setSalvandoPerfil] = useState(false);     // Fatia A — tela de edição
   const [servicos, setServicos] = useState([]);
@@ -757,6 +833,7 @@ function Portal() {
         setSobrenome(sn);                                          // Fatia A: separa de uma vez
         setEmail(r.email || "");                                   // Fatia A: e-mail vindo do backend
         setNascimento(nascParaInput(r.nascimento));                // R2: pré-preenche se já existe
+        setDependentes(depsParaEstado(r.dependentes || []));       // dependentes vindos do backend
         setVerificando(false);
         setStep(HOME);            // entra já na Área do Cliente
         carregarMeus(limpo);      // agendamentos carregam em segundo plano
@@ -797,6 +874,8 @@ function Portal() {
         telefone: telLimpo(tel),
         nascimento: nascParaBackend(nascimento),                                 // R2 — DD/MM/AAAA pro backend
         email: email.trim(),                                                     // Fatia A
+        dependentes: depsParaBackend(dependentes),                               // lista de filhos
+        para: (paraQuem >= 0 && dependentes[paraQuem]) ? dependentes[paraQuem].nome : "", // p/ quem é o corte
         data: isoDate(dataSel), horario: horaSel,
         servico: { nome: servSel.nome, duracao: servSel.duracao, preco: servSel.preco },
         barbeiro: barbSel ? barbSel.nome : "", observacao: obs.trim(),
@@ -850,6 +929,7 @@ function Portal() {
         sobrenome: sobrenome.trim(),
         nascimento: nascParaBackend(nascimento),
         email: email.trim(),
+        dependentes: depsParaBackend(dependentes),
       });
       if (r && (r.success || r._demo)) {
         // atualiza clienteExistente local pra refletir mudança sem nova chamada
@@ -875,8 +955,16 @@ function Portal() {
   const resetTudo = () => {
     setStep(0); setTel(""); setServSel(null); setBarbSel(null); setDataSel(null); setHoraSel(null);
     setNome(""); setSobrenome(""); setEmail(""); setNascimento(""); setObs("");
+    setDependentes([]); setParaQuem(-1);
     setResultado(null); setClienteExistente(null); setReagendandoId(null);
     setMeusAgs([]); setAceito(false); setAviso(null);
+  };
+
+  // ── novo agendamento sem deslogar (botão da tela de sucesso) ──
+  const novoAgendamento = () => {
+    setServSel(null); setBarbSel(null); setDataSel(null); setHoraSel(null);
+    setParaQuem(-1); setObs(""); setErro(""); setResultado(null);
+    setStep(1);
   };
 
   // navegação da barra inferior
@@ -1123,6 +1211,7 @@ function Portal() {
               style={{width:"100%",marginTop:8,padding:"14px 16px",fontSize:16,borderRadius:13,border:`1.5px solid ${T.line}`,background:T.card,fontFamily:T.sans,outline:"none",color:T.ink}}
               onFocus={(e)=>e.target.style.borderColor=T.brass} onBlur={(e)=>e.target.style.borderColor=T.line}/>
           </div>
+          <DependentesEditor deps={dependentes} setDeps={setDependentes} />
           <div style={{marginTop:14}}>
             <label style={{fontSize:13,fontWeight:600,color:T.ink2}}>WhatsApp</label>
             <input value={maskTel(tel)} readOnly
@@ -1142,6 +1231,24 @@ function Portal() {
   if (step===1) return (
     <Shell step={0} total={5} onToggleTema={onToggleTema}>
       <Header titulo="Escolha o serviço" sub={clienteExistente?`Olá de novo, ${primeiroNome(clienteExistente.nome)}!`:"O que você quer fazer hoje?"} onBack={()=> clienteExistente ? setStep(HOME) : setStep(0)}/>
+      {dependentes.length > 0 && (
+        <div style={{padding:"0 22px 4px"}}>
+          <div style={{fontSize:13,fontWeight:600,color:T.ink2,marginBottom:8}}>Para quem é o atendimento?</div>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+            {[{nome:"Para mim",idx:-1}, ...dependentes.map((d,i)=>({nome:primeiroNome(d.nome)||`Dependente ${i+1}`,idx:i}))].map(opt=>{
+              const sel = paraQuem===opt.idx;
+              return (
+                <button key={opt.idx} onClick={()=>setParaQuem(opt.idx)} className="aq-btn" style={{
+                  padding:"9px 14px",borderRadius:99,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:T.sans,
+                  border:`1.5px solid ${sel?T.brass:T.line}`,
+                  background:sel?`linear-gradient(150deg,${T.brass},${T.brassDeep})`:T.card,
+                  color:sel?"#fff":T.ink,
+                }}>{opt.nome}</button>
+              );
+            })}
+          </div>
+        </div>
+      )}
       <div style={{padding:"8px 22px 0",display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
         {servicos.map(sv=>{
           const sel = servSel && servSel.id===sv.id;
@@ -1255,6 +1362,7 @@ function Portal() {
       <Header titulo="Confirme seu agendamento" onBack={()=>setStep(3)}/>
       <div style={{padding:"4px 22px 0"}}>
         <div style={{background:T.card,border:`1px solid ${T.line}`,borderRadius:16,padding:18}}>
+          {(paraQuem>=0 && dependentes[paraQuem]) && <Linha label="Para" valor={dependentes[paraQuem].nome}/>}
           <Linha label="Serviço" valor={servSel?.nome}/>
           <Linha label="Barbeiro" valor={barbSel?.nome}/>
           <Linha label="Data" valor={dataSel && `${DIAS[dataSel.getDay()]}, ${dataSel.getDate()} de ${MESES_L[dataSel.getMonth()]}`}/>
@@ -1295,6 +1403,7 @@ function Portal() {
             style={{width:"100%",marginTop:8,padding:"14px 16px",fontSize:16,borderRadius:13,border:`1.5px solid ${T.line}`,background:T.card,fontFamily:T.sans,outline:"none",color:T.ink}}
             onFocus={(e)=>e.target.style.borderColor=T.brass} onBlur={(e)=>e.target.style.borderColor=T.line}/>
         </div>
+        <DependentesEditor deps={dependentes} setDeps={setDependentes} />
         <div style={{marginTop:14}}>
           <label style={{fontSize:13,fontWeight:600,color:T.ink2}}>Observação <span style={{color:T.muted,fontWeight:400}}>(opcional)</span></label>
           <input value={obs} onChange={(e)=>setObs(e.target.value)} placeholder="Algum pedido especial?"
@@ -1344,10 +1453,11 @@ function Portal() {
           <svg width="34" height="34" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/></svg>
         </div>
         <h1 style={{fontFamily:T.serif,fontWeight:700,fontSize:28,margin:"0 0 8px",color:T.ink}}>Agendamento confirmado!</h1>
-        <p style={{color:T.muted,fontSize:15,margin:"0 0 24px",lineHeight:1.5}}>{primeiroNome(nome)}, seu horário está garantido.</p>
+        <p style={{color:T.muted,fontSize:15,margin:"0 0 24px",lineHeight:1.5}}>{primeiroNome(nome)}, {(paraQuem>=0 && dependentes[paraQuem]) ? `o horário de ${primeiroNome(dependentes[paraQuem].nome)} está garantido.` : "seu horário está garantido."}</p>
       </div>
       <div style={{padding:"0 22px"}}>
         <div style={{background:T.card,border:`1px solid ${T.line}`,borderRadius:16,padding:18,textAlign:"left"}}>
+          {(paraQuem>=0 && dependentes[paraQuem]) && <Linha label="Para" valor={dependentes[paraQuem].nome}/>}
           <Linha label="Serviço" valor={servSel?.nome}/>
           <Linha label="Barbeiro" valor={barbSel?.nome}/>
           <Linha label="Data" valor={dataSel && `${DIAS[dataSel.getDay()]}, ${dataSel.getDate()}/${String(dataSel.getMonth()+1).padStart(2,"0")}`}/>
@@ -1357,7 +1467,10 @@ function Portal() {
         {(resultado?.demo||demo) && <p style={{textAlign:"center",fontSize:11,color:T.muted,marginTop:14}}>Modo demonstração — conecte o backend (VITE_GAS_URL) para gravar de verdade.</p>}
         {!(resultado?.demo||demo) && <p style={{textAlign:"center",fontSize:13,color:T.muted,marginTop:16,lineHeight:1.5}}>Você receberá lembretes no WhatsApp: 24h e 1h antes.</p>}
       </div>
-      <Bottom><Primary onClick={resetTudo}>Voltar ao início</Primary></Bottom>
+      <Bottom>
+        <Primary onClick={novoAgendamento}>Agendar outro horário</Primary>
+        <button onClick={()=>setStep(HOME)} className="aq-btn" style={{width:"100%",marginTop:10,padding:"14px",borderRadius:13,border:`1.5px solid ${T.line}`,background:"transparent",color:T.ink2,fontWeight:600,fontSize:15,cursor:"pointer",fontFamily:T.sans}}>Ir para o início</button>
+      </Bottom>
     </Shell>
   );
 }
