@@ -103,6 +103,32 @@ const maskTel = (v) => {
   return `(${d.slice(0,2)}) ${d.slice(2,7)}-${d.slice(7)}`;
 };
 const telLimpo = (v) => String(v).replace(/\D/g,"");
+
+// Países para o seletor de DDI (Brasil primeiro). Bandeira + código.
+const PAISES = [
+  { ddi:"55",  flag:"🇧🇷", nome:"Brasil" },
+  { ddi:"351", flag:"🇵🇹", nome:"Portugal" },
+  { ddi:"1",   flag:"🇺🇸", nome:"EUA / Canadá" },
+  { ddi:"54",  flag:"🇦🇷", nome:"Argentina" },
+  { ddi:"595", flag:"🇵🇾", nome:"Paraguai" },
+  { ddi:"598", flag:"🇺🇾", nome:"Uruguai" },
+  { ddi:"56",  flag:"🇨🇱", nome:"Chile" },
+  { ddi:"57",  flag:"🇨🇴", nome:"Colômbia" },
+  { ddi:"34",  flag:"🇪🇸", nome:"Espanha" },
+  { ddi:"39",  flag:"🇮🇹", nome:"Itália" },
+  { ddi:"33",  flag:"🇫🇷", nome:"França" },
+  { ddi:"44",  flag:"🇬🇧", nome:"Reino Unido" },
+  { ddi:"49",  flag:"🇩🇪", nome:"Alemanha" },
+  { ddi:"81",  flag:"🇯🇵", nome:"Japão" },
+  { ddi:"244", flag:"🇦🇴", nome:"Angola" },
+  { ddi:"258", flag:"🇲🇿", nome:"Moçambique" },
+];
+const flagDoDDI = (ddi) => { const p = PAISES.find(x=>x.ddi===String(ddi)); return p ? p.flag : "🌐"; };
+// número final guardado: Brasil = só os dígitos (como sempre foi, p/ não perder
+// cadastros); outros países = DDI + dígitos.
+const numeroFinal = (ddi, tel) => String(ddi)==="55" ? telLimpo(tel) : String(ddi)+telLimpo(tel);
+// exibição amigável do telefone (respeita o país)
+const telExibe = (ddi, tel) => String(ddi)==="55" ? maskTel(tel) : `+${ddi} ${telLimpo(tel)}`;
 const primeiroNome = (n) => String(n||"").trim().split(/\s+/)[0] || "";
 
 const DIAS = ["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
@@ -883,6 +909,7 @@ function Portal() {
   const T = useT();
   const [step, setStep] = useState(0);            // 0 tel · 1 serviço · 2 barbeiro · 3 data/hora · 4 dados · 5 sinal · 6 ok · 7 home · 8 histórico
   const [tel, setTel] = useState("");
+  const [ddi, setDdi] = useState("55");   // DDI do país (Brasil por padrão, trocável)
   const [clienteExistente, setClienteExistente] = useState(null);
   const [nome, setNome] = useState("");
   const [sobrenome, setSobrenome] = useState("");                 // Fatia A — separado para UX
@@ -952,8 +979,9 @@ function Portal() {
 
   // ── Passo 0: telefone ──
   const avancarTelefone = async () => {
-    const limpo = telLimpo(tel);
-    if (limpo.length < 10) { setErro("Digite um número de WhatsApp válido."); return; }
+    const limpo = numeroFinal(ddi, tel);
+    const minOk = ddi==="55" ? telLimpo(tel).length>=10 : telLimpo(tel).length>=6;
+    if (!minOk) { setErro("Digite um número de WhatsApp válido."); return; }
     setErro(""); setVerificando(true);
     try {
       const r = await api.verificarCliente(limpo);
@@ -1004,7 +1032,7 @@ function Portal() {
     try {
       const r = await api.agendar({
         nome: `${nome.trim()} ${sobrenome.trim()}`,                              // junta antes de mandar
-        telefone: telLimpo(tel),
+        telefone: numeroFinal(ddi, tel),
         nascimento: nascParaBackend(nascimento),                                 // R2 — DD/MM/AAAA pro backend
         email: email.trim(),                                                     // Fatia A
         foto: fotoUrl,                                                            // foto do cliente
@@ -1016,7 +1044,7 @@ function Portal() {
       });
       if (r && r._demo) { setResultado({ demo:true }); setStep(6); }
       else if (r && r.requiresSinal) { setResultado(r); setStep(5); }
-      else if (r && (r.success || r.id)) { setResultado(r); carregarMeus(telLimpo(tel)); setStep(6); }
+      else if (r && (r.success || r.id)) { setResultado(r); carregarMeus(numeroFinal(ddi, tel)); setStep(6); }
       else { setErro((r && r.error) || "Não foi possível concluir. Tente outro horário."); }
     } catch (e) { setErro("Falha de conexão. Verifique sua internet e tente de novo."); }
     setEnviando(false);
@@ -1026,10 +1054,10 @@ function Portal() {
   const confirmarReagendamento = async () => {
     setErro(""); setEnviando(true);
     try {
-      const r = await api.reagendar(reagendandoId, isoDate(dataSel), horaSel, telLimpo(tel));
+      const r = await api.reagendar(reagendandoId, isoDate(dataSel), horaSel, numeroFinal(ddi, tel));
       if (r && (r.success || r._demo)) {
         setReagendandoId(null); setServSel(null); setDataSel(null); setHoraSel(null);
-        await carregarMeus(telLimpo(tel));
+        await carregarMeus(numeroFinal(ddi, tel));
         setAviso({ tipo:"ok", txt:"Horário remarcado! Você recebe a confirmação no WhatsApp." });
         setStep(HOME);
       } else { setErro((r && r.error) || "Não foi possível remarcar. Tente outro horário."); }
@@ -1041,9 +1069,9 @@ function Portal() {
   const cancelarAg = async (ag) => {
     if (!window.confirm(`Cancelar o ${ag.servico} de ${labelData(agData(ag))} às ${agHora(ag)}?`)) return;
     try {
-      const r = await api.cancelar(ag.id, telLimpo(tel));
+      const r = await api.cancelar(ag.id, numeroFinal(ddi, tel));
       if (r && (r.success || r._demo)) {
-        await carregarMeus(telLimpo(tel));
+        await carregarMeus(numeroFinal(ddi, tel));
         setAviso({ tipo:"ok", txt:"Agendamento cancelado." });
       } else { setAviso({ tipo:"erro", txt:(r && r.error) || "Não foi possível cancelar." }); }
     } catch (e) { setAviso({ tipo:"erro", txt:"Falha de conexão." }); }
@@ -1072,7 +1100,7 @@ function Portal() {
     setErro(""); setSalvandoPerfil(true);
     try {
       const r = await api.atualizarPerfil({
-        tel: telLimpo(tel),
+        tel: numeroFinal(ddi, tel),
         nome: nome.trim(),
         sobrenome: sobrenome.trim(),
         nascimento: nascParaBackend(nascimento),
@@ -1102,7 +1130,7 @@ function Portal() {
   };
 
   const resetTudo = () => {
-    setStep(0); setTel(""); setServSel(null); setBarbSel(null); setDataSel(null); setHoraSel(null);
+    setStep(0); setTel(""); setDdi("55"); setServSel(null); setBarbSel(null); setDataSel(null); setHoraSel(null);
     setNome(""); setSobrenome(""); setEmail(""); setNascimento(""); setObs("");
     setDependentes([]); setParaQuem(-1); setFotoUrl("");
     setResultado(null); setClienteExistente(null); setReagendandoId(null);
@@ -1119,7 +1147,7 @@ function Portal() {
   // navegação da barra inferior
   const irPara = (destino) => {
     if (destino === 1) { setReagendandoId(null); setServSel(null); setBarbSel(null); }
-    if ((destino === HOME || destino === HIST) && tel && ENV.hasBackend) carregarMeus(telLimpo(tel));
+    if ((destino === HOME || destino === HIST) && tel && ENV.hasBackend) carregarMeus(numeroFinal(ddi, tel));
     setStep(destino);
   };
 
@@ -1140,14 +1168,27 @@ function Portal() {
         <h1 style={{fontFamily:T.serif,fontWeight:600,fontSize:24,margin:"0 0 6px",lineHeight:1.2,color:T.ink}}>Agende seu horário</h1>
         <p style={{color:T.muted,fontSize:14,margin:"0 0 22px"}}>Em poucos toques. Comece com seu WhatsApp.</p>
         <label style={{fontSize:13,fontWeight:600,color:T.ink2}}>Seu WhatsApp</label>
-        <input
-          value={tel} onChange={(e)=>setTel(maskTel(e.target.value))} type="tel" inputMode="numeric"
-          placeholder="(31) 99999-9999" autoFocus
-          style={{width:"100%",marginTop:8,padding:"15px 16px",fontSize:17,borderRadius:13,border:`1.5px solid ${T.line}`,background:T.card,fontFamily:T.sans,outline:"none",color:T.ink}}
-          onFocus={(e)=>e.target.style.borderColor=T.brass}
-          onBlur={(e)=>e.target.style.borderColor=T.line}
-          onKeyDown={(e)=>e.key==="Enter"&&avancarTelefone()}
-        />
+        <div style={{display:"flex",gap:8,marginTop:8}}>
+          <div style={{position:"relative",flexShrink:0}}>
+            <select
+              value={PAISES.findIndex(p=>p.ddi===ddi)>=0?PAISES.findIndex(p=>p.ddi===ddi):0}
+              onChange={(e)=>{ const p = PAISES[Number(e.target.value)]; setDdi(p.ddi); setTel(p.ddi==="55"?maskTel(telLimpo(tel)):telLimpo(tel)); }}
+              aria-label="País / DDI"
+              style={{appearance:"none",WebkitAppearance:"none",height:"100%",padding:"15px 26px 15px 14px",fontSize:16,borderRadius:13,border:`1.5px solid ${T.line}`,background:T.card,fontFamily:T.sans,color:T.ink,outline:"none",cursor:"pointer"}}>
+              {PAISES.map((p,i)=>(<option key={i} value={i}>{p.flag} +{p.ddi}</option>))}
+            </select>
+            <span style={{position:"absolute",right:9,top:"50%",transform:"translateY(-50%)",pointerEvents:"none",color:T.muted,fontSize:11}}>▼</span>
+          </div>
+          <input
+            value={tel} onChange={(e)=>setTel(ddi==="55"?maskTel(e.target.value):telLimpo(e.target.value).slice(0,15))} type="tel" inputMode="numeric"
+            placeholder={ddi==="55"?"(31) 99999-9999":"número com DDD"} autoFocus
+            style={{flex:1,minWidth:0,padding:"15px 16px",fontSize:17,borderRadius:13,border:`1.5px solid ${T.line}`,background:T.card,fontFamily:T.sans,outline:"none",color:T.ink}}
+            onFocus={(e)=>e.target.style.borderColor=T.brass}
+            onBlur={(e)=>e.target.style.borderColor=T.line}
+            onKeyDown={(e)=>e.key==="Enter"&&avancarTelefone()}
+          />
+        </div>
+        {ddi!=="55" && <div style={{fontSize:11,color:T.muted,marginTop:6}}>{flagDoDDI(ddi)} Código internacional +{ddi} selecionado.</div>}
         {erro && <div style={{color:T.danger,fontSize:13,marginTop:8}}>{erro}</div>}
       </div>
       <Bottom>
@@ -1162,7 +1203,7 @@ function Portal() {
               style={{background:"none",border:"none",padding:0,color:T.brass,fontWeight:700,textDecoration:"underline",cursor:"pointer",fontSize:12.5,fontFamily:T.sans}}>Termos de Uso</button>.
           </span>
         </label>
-        <Primary onClick={avancarTelefone} disabled={telLimpo(tel).length<10 || !aceito || verificando}>{verificando?"Verificando…":"Continuar"}</Primary>
+        <Primary onClick={avancarTelefone} disabled={(ddi==="55"?telLimpo(tel).length<10:telLimpo(tel).length<6) || !aceito || verificando}>{verificando?"Verificando…":"Continuar"}</Primary>
       </Bottom>
     </Shell>
     {legalModal && <LegalModal tipo={legalModal} onClose={()=>setLegalModal(null)} />}
@@ -1302,7 +1343,7 @@ function Portal() {
             <div style={{width:54,height:54,borderRadius:"50%",background:clienteExistente?.foto?`#000 center/cover url(${clienteExistente.foto})`:`linear-gradient(135deg,${T.brass},${T.brassDeep})`,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:700,fontSize:22,flexShrink:0,overflow:"hidden"}}>{clienteExistente?.foto?"":inic}</div>
             <div style={{flex:1,minWidth:0}}>
               <div style={{color:T.ink,fontWeight:700,fontSize:18}}>{clienteExistente?.nome || "—"}</div>
-              <div style={{color:T.muted,fontSize:13,marginTop:2}}>{maskTel(tel)}</div>
+              <div style={{color:T.muted,fontSize:13,marginTop:2}}>{telExibe(ddi, tel)}</div>
             </div>
           </div>
 
@@ -1384,7 +1425,7 @@ function Portal() {
           <DependentesEditor deps={dependentes} setDeps={setDependentes} />
           <div style={{marginTop:14}}>
             <label style={{fontSize:13,fontWeight:600,color:T.ink2}}>WhatsApp</label>
-            <input value={maskTel(tel)} readOnly
+            <input value={telExibe(ddi, tel)} readOnly
               style={{width:"100%",marginTop:8,padding:"14px 16px",fontSize:16,borderRadius:13,border:`1.5px solid ${T.line}`,background:T.bg1,fontFamily:T.sans,outline:"none",color:T.muted,cursor:"not-allowed"}}/>
             <div style={{fontSize:11,color:T.muted,marginTop:6}}>Para mudar o WhatsApp, use “Sair / trocar de número” na tela anterior.</div>
           </div>
