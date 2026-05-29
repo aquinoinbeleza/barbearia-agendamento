@@ -94,6 +94,155 @@ const TEMA_KEY = "aquino_portal_tema";
 const lerTema = () => { try { const v = localStorage.getItem(TEMA_KEY); return v === "light" ? "light" : "dark"; } catch (e) { return "dark"; } };
 const salvarTema = (t) => { try { localStorage.setItem(TEMA_KEY, t); } catch (e) {} };
 
+// ─── IDIOMA (i18n) ──────────────────────────────────────────────────────
+// Fase 1: funil de agendamento + navegação + perfil. Conteúdo dinâmico
+// (serviços, datas comemorativas, frases) permanece em português.
+const IDIOMAS = [
+  { cod:"pt", flag:"🇧🇷", nome:"Português" },
+  { cod:"en", flag:"🇺🇸", nome:"English" },
+  { cod:"es", flag:"🇪🇸", nome:"Español" },
+  { cod:"fr", flag:"🇫🇷", nome:"Français" },
+];
+const IDIOMA_KEY = "aquino_portal_idioma";
+const lerIdioma = () => { try { const v = localStorage.getItem(IDIOMA_KEY); return ["pt","en","es","fr"].includes(v) ? v : "pt"; } catch (e) { return "pt"; } };
+const salvarIdioma = (l) => { try { localStorage.setItem(IDIOMA_KEY, l); } catch (e) {} };
+const IdiomaCtx = createContext("pt");
+const useIdioma = () => useContext(IdiomaCtx);
+
+const STRINGS = {
+  // navegação inferior
+  nav_inicio:   { pt:"Início",   en:"Home",      es:"Inicio",    fr:"Accueil" },
+  nav_agendar:  { pt:"Agendar",  en:"Book",      es:"Reservar",  fr:"Réserver" },
+  nav_agenda:   { pt:"Agenda",   en:"Schedule",  es:"Agenda",    fr:"Agenda" },
+  nav_perfil:   { pt:"Perfil",   en:"Profile",   es:"Perfil",    fr:"Profil" },
+  // genéricos
+  voltar:       { pt:"← Voltar", en:"← Back",     es:"← Volver",  fr:"← Retour" },
+  continuar:    { pt:"Continuar",en:"Continue",   es:"Continuar", fr:"Continuer" },
+  // tela 0 — telefone
+  t0_titulo:    { pt:"Agende seu horário", en:"Book your appointment", es:"Reserva tu horario", fr:"Réservez votre rendez-vous" },
+  t0_sub:       { pt:"Em poucos toques. Comece com seu WhatsApp.", en:"In a few taps. Start with your WhatsApp.", es:"En pocos toques. Empieza con tu WhatsApp.", fr:"En quelques clics. Commencez avec votre WhatsApp." },
+  t0_label:     { pt:"Seu WhatsApp", en:"Your WhatsApp", es:"Tu WhatsApp", fr:"Votre WhatsApp" },
+  t0_ph_br:     { pt:"(31) 99999-9999", en:"(31) 99999-9999", es:"(31) 99999-9999", fr:"(31) 99999-9999" },
+  t0_ph_intl:   { pt:"número com DDD", en:"number with area code", es:"número con código de área", fr:"numéro avec indicatif" },
+  t0_ddi_aviso: { pt:"Código internacional", en:"International code", es:"Código internacional", fr:"Indicatif international" },
+  t0_ddi_fim:   { pt:"selecionado.", en:"selected.", es:"seleccionado.", fr:"sélectionné." },
+  t0_tel_inval: { pt:"Digite um número de WhatsApp válido.", en:"Enter a valid WhatsApp number.", es:"Ingresa un número de WhatsApp válido.", fr:"Entrez un numéro WhatsApp valide." },
+  t0_verificando:{ pt:"Verificando…", en:"Checking…", es:"Verificando…", fr:"Vérification…" },
+  t0_li_concordo:{ pt:"Li e concordo com a", en:"I have read and agree to the", es:"He leído y acepto la", fr:"J'ai lu et j'accepte la" },
+  t0_privacidade:{ pt:"Política de Privacidade", en:"Privacy Policy", es:"Política de Privacidad", fr:"Politique de Confidentialité" },
+  t0_e_os:      { pt:"e os", en:"and the", es:"y los", fr:"et les" },
+  t0_termos:    { pt:"Termos de Uso", en:"Terms of Use", es:"Términos de Uso", fr:"Conditions d'Utilisation" },
+  // tela 1 — serviço
+  t1_titulo:    { pt:"Escolha o serviço", en:"Choose the service", es:"Elige el servicio", fr:"Choisissez le service" },
+  t1_ola_volta: { pt:"Olá de novo,", en:"Hello again,", es:"Hola de nuevo,", fr:"Bonjour à nouveau," },
+  t1_sub:       { pt:"O que você quer fazer hoje?", en:"What would you like today?", es:"¿Qué quieres hacer hoy?", fr:"Que souhaitez-vous aujourd'hui ?" },
+  t1_para_quem: { pt:"Para quem é o atendimento?", en:"Who is this appointment for?", es:"¿Para quién es la cita?", fr:"Pour qui est ce rendez-vous ?" },
+  t1_para_mim:  { pt:"Para mim", en:"For me", es:"Para mí", fr:"Pour moi" },
+  t1_min:       { pt:"min", en:"min", es:"min", fr:"min" },
+  t1_selecione: { pt:"Selecione um serviço", en:"Select a service", es:"Selecciona un servicio", fr:"Sélectionnez un service" },
+  // tela 2 — barbeiro
+  t2_titulo:    { pt:"Escolha o profissional", en:"Choose the professional", es:"Elige el profesional", fr:"Choisissez le professionnel" },
+  t2_sub:       { pt:"Quem você quer que faça seu atendimento?", en:"Who would you like to attend you?", es:"¿Quién quieres que te atienda?", fr:"Qui souhaitez-vous pour votre rendez-vous ?" },
+  // tela 3 — data/hora
+  t3_data_hora: { pt:"Data e horário", en:"Date and time", es:"Fecha y hora", fr:"Date et heure" },
+  t3_novo_h:    { pt:"Novo horário", en:"New time", es:"Nuevo horario", fr:"Nouvel horaire" },
+  t3_remarc_sub:{ pt:"Remarcando: {x}", en:"Rescheduling: {x}", es:"Reprogramando: {x}", fr:"Report : {x}" },
+  // tela 5 — sinal/pix
+  t5_titulo:    { pt:"Garanta seu horário", en:"Secure your appointment", es:"Asegura tu horario", fr:"Confirmez votre rendez-vous" },
+  t5_sub:       { pt:"Para confirmar, falta um sinal via Pix.", en:"To confirm, a Pix deposit is needed.", es:"Para confirmar, falta una seña vía Pix.", fr:"Pour confirmer, un acompte via Pix est requis." },
+  t3_novo_horario:{ pt:"Confirmar novo horário", en:"Confirm new time", es:"Confirmar nuevo horario", fr:"Confirmer le nouvel horaire" },
+  t3_remarcando:{ pt:"Remarcando…", en:"Rescheduling…", es:"Reprogramando…", fr:"Report en cours…" },
+  // tela 4 — dados
+  t4_titulo:    { pt:"Confirme seus dados", en:"Confirm your details", es:"Confirma tus datos", fr:"Confirmez vos informations" },
+  t4_nome:      { pt:"Nome", en:"First name", es:"Nombre", fr:"Prénom" },
+  t4_sobrenome: { pt:"Sobrenome", en:"Last name", es:"Apellido", fr:"Nom" },
+  t4_nascimento:{ pt:"Data de nascimento", en:"Date of birth", es:"Fecha de nacimiento", fr:"Date de naissance" },
+  t4_nasc_aviso:{ pt:"Usamos para mensagem de aniversário e cuidados específicos.", en:"Used for birthday greetings and tailored care.", es:"Lo usamos para felicitaciones de cumpleaños y cuidados específicos.", fr:"Utilisé pour les vœux d'anniversaire et des soins adaptés." },
+  t4_email:     { pt:"E-mail", en:"E-mail", es:"Correo electrónico", fr:"E-mail" },
+  t4_foto_aviso:{ pt:"Foto de perfil (obrigatória) — ajuda no seu reconhecimento.", en:"Profile photo (required) — helps us recognize you.", es:"Foto de perfil (obligatoria) — ayuda a reconocerte.", fr:"Photo de profil (obligatoire) — aide à vous reconnaître." },
+  t4_obs:       { pt:"Observação", en:"Note", es:"Observación", fr:"Remarque" },
+  t4_opcional:  { pt:"(opcional)", en:"(optional)", es:"(opcional)", fr:"(facultatif)" },
+  t4_obs_ph:    { pt:"Algum pedido especial?", en:"Any special request?", es:"¿Alguna petición especial?", fr:"Une demande particulière ?" },
+  t4_confirmar: { pt:"Confirmar agendamento", en:"Confirm booking", es:"Confirmar reserva", fr:"Confirmer la réservation" },
+  t4_confirmando:{ pt:"Confirmando…", en:"Confirming…", es:"Confirmando…", fr:"Confirmation…" },
+  err_nome:     { pt:"Por favor, informe seu nome.", en:"Please enter your name.", es:"Por favor, ingresa tu nombre.", fr:"Veuillez saisir votre nom." },
+  err_sobrenome:{ pt:"Informe seu sobrenome.", en:"Please enter your last name.", es:"Ingresa tu apellido.", fr:"Saisissez votre nom de famille." },
+  err_nasc:     { pt:"Informe uma data de nascimento válida.", en:"Enter a valid date of birth.", es:"Ingresa una fecha de nacimiento válida.", fr:"Entrez une date de naissance valide." },
+  err_email:    { pt:"Informe um e-mail válido.", en:"Enter a valid e-mail.", es:"Ingresa un correo válido.", fr:"Entrez un e-mail valide." },
+  err_foto:     { pt:"Adicione uma foto de perfil para concluir.", en:"Add a profile photo to finish.", es:"Agrega una foto de perfil para finalizar.", fr:"Ajoutez une photo de profil pour terminer." },
+  // foto
+  foto_add:     { pt:"Adicionar foto", en:"Add photo", es:"Agregar foto", fr:"Ajouter une photo" },
+  foto_trocar:  { pt:"Trocar foto", en:"Change photo", es:"Cambiar foto", fr:"Changer la photo" },
+  foto_enviando:{ pt:"Enviando…", en:"Uploading…", es:"Enviando…", fr:"Envoi…" },
+  // dependentes
+  dep_toggle:   { pt:"Tenho dependentes que também atendo aqui", en:"I have dependents who also come here", es:"Tengo dependientes que también atiendo aquí", fr:"J'ai des proches qui viennent aussi ici" },
+  dep_label:    { pt:"Dependente", en:"Dependent", es:"Dependiente", fr:"Proche" },
+  dep_nome_ph:  { pt:"Nome do dependente", en:"Dependent's name", es:"Nombre del dependiente", fr:"Nom du proche" },
+  dep_remover:  { pt:"Remover", en:"Remove", es:"Eliminar", fr:"Retirer" },
+  dep_add:      { pt:"+ Adicionar outro dependente", en:"+ Add another dependent", es:"+ Agregar otro dependiente", fr:"+ Ajouter un autre proche" },
+  // sucesso
+  ok_titulo:    { pt:"Agendamento confirmado!", en:"Booking confirmed!", es:"¡Reserva confirmada!", fr:"Réservation confirmée !" },
+  ok_garantido: { pt:"seu horário está garantido.", en:"your time is secured.", es:"tu horario está garantizado.", fr:"votre créneau est confirmé." },
+  ok_dep_garantido:{ pt:"o horário de {x} está garantido.", en:"{x}'s appointment is secured.", es:"el horario de {x} está garantizado.", fr:"le rendez-vous de {x} est confirmé." },
+  ok_novo:      { pt:"Agendar outro horário", en:"Book another time", es:"Reservar otro horario", fr:"Réserver un autre créneau" },
+  ok_inicio:    { pt:"Ir para o início", en:"Go to home", es:"Ir al inicio", fr:"Aller à l'accueil" },
+  lbl_para:     { pt:"Para", en:"For", es:"Para", fr:"Pour" },
+  lbl_servico:  { pt:"Serviço", en:"Service", es:"Servicio", fr:"Service" },
+  lbl_barbeiro: { pt:"Barbeiro", en:"Barber", es:"Barbero", fr:"Coiffeur" },
+  lbl_data:     { pt:"Data", en:"Date", es:"Fecha", fr:"Date" },
+  lbl_horario:  { pt:"Horário", en:"Time", es:"Hora", fr:"Heure" },
+  lbl_local:    { pt:"Local", en:"Location", es:"Lugar", fr:"Lieu" },
+  ok_lembrete:  { pt:"Você receberá lembretes no WhatsApp: 24h e 1h antes.", en:"You'll get WhatsApp reminders: 24h and 1h before.", es:"Recibirás recordatorios por WhatsApp: 24h y 1h antes.", fr:"Vous recevrez des rappels WhatsApp : 24h et 1h avant." },
+  // perfil
+  pf_titulo:    { pt:"Seu perfil", en:"Your profile", es:"Tu perfil", fr:"Votre profil" },
+  pf_seus_dados:{ pt:"Seus dados", en:"Your details", es:"Tus datos", fr:"Vos informations" },
+  pf_editar:    { pt:"Editar ✎", en:"Edit ✎", es:"Editar ✎", fr:"Modifier ✎" },
+  pf_idade:     { pt:"Idade", en:"Age", es:"Edad", fr:"Âge" },
+  pf_dependentes:{ pt:"Dependentes", en:"Dependents", es:"Dependientes", fr:"Proches" },
+  pf_fidelidade:{ pt:"Nível de fidelidade", en:"Loyalty level", es:"Nivel de fidelidad", fr:"Niveau de fidélité" },
+  pf_visitas:   { pt:"Visitas", en:"Visits", es:"Visitas", fr:"Visites" },
+  pf_prox_nivel:{ pt:"Próximo nível", en:"Next level", es:"Próximo nivel", fr:"Niveau suivant" },
+  pf_max:       { pt:"Máximo atingido", en:"Max reached", es:"Máximo alcanzado", fr:"Maximum atteint" },
+  pf_faltam:    { pt:"faltam", en:"left", es:"faltan", fr:"restants" },
+  pf_sair:      { pt:"Sair / trocar de número", en:"Log out / change number", es:"Salir / cambiar número", fr:"Quitter / changer de numéro" },
+  // editar perfil
+  ed_titulo:    { pt:"Editar perfil", en:"Edit profile", es:"Editar perfil", fr:"Modifier le profil" },
+  ed_sub:       { pt:"Atualize seus dados — todos obrigatórios.", en:"Update your details — all required.", es:"Actualiza tus datos — todos obligatorios.", fr:"Mettez à jour vos informations — toutes obligatoires." },
+  ed_salvar:    { pt:"Salvar alterações", en:"Save changes", es:"Guardar cambios", fr:"Enregistrer" },
+  ed_salvando:  { pt:"Salvando…", en:"Saving…", es:"Guardando…", fr:"Enregistrement…" },
+  ed_wpp_aviso: { pt:"Para mudar o WhatsApp, use “Sair / trocar de número” na tela anterior.", en:"To change WhatsApp, use \"Log out / change number\" on the previous screen.", es:"Para cambiar el WhatsApp, usa \"Salir / cambiar número\" en la pantalla anterior.", fr:"Pour changer de WhatsApp, utilisez « Quitter / changer de numéro » sur l'écran précédent." },
+  ed_perfil_ok: { pt:"Perfil atualizado!", en:"Profile updated!", es:"¡Perfil actualizado!", fr:"Profil mis à jour !" },
+  // agenda/histórico
+  ag_titulo:    { pt:"Seus agendamentos", en:"Your appointments", es:"Tus reservas", fr:"Vos rendez-vous" },
+  ag_n_um:      { pt:"agendamento", en:"appointment", es:"reserva", fr:"rendez-vous" },
+  ag_n_varios:  { pt:"agendamentos", en:"appointments", es:"reservas", fr:"rendez-vous" },
+  ag_vazio:     { pt:"Você ainda não tem agendamentos registrados.", en:"You have no appointments yet.", es:"Aún no tienes reservas registradas.", fr:"Vous n'avez pas encore de rendez-vous." },
+  // home
+  hm_proximo:   { pt:"Seu próximo horário", en:"Your next appointment", es:"Tu próximo horario", fr:"Votre prochain rendez-vous" },
+  hm_nenhum:    { pt:"Nenhum horário marcado", en:"No appointment scheduled", es:"Ningún horario reservado", fr:"Aucun rendez-vous prévu" },
+  hm_que_tal:   { pt:"Que tal agendar agora?", en:"How about booking now?", es:"¿Qué tal reservar ahora?", fr:"Et si vous réserviez maintenant ?" },
+  insp_hoje:    { pt:"Hoje também se celebra: ", en:"Also celebrated today: ", es:"Hoy también se celebra: ", fr:"Aujourd'hui on célèbre aussi : " },
+  t3_escolha_dia:{ pt:"Escolha um dia acima para ver os horários.", en:"Pick a day above to see available times.", es:"Elige un día arriba para ver los horarios.", fr:"Choisissez un jour ci-dessus pour voir les créneaux." },
+  t3_buscando:  { pt:"Buscando horários disponíveis…", en:"Finding available times…", es:"Buscando horarios disponibles…", fr:"Recherche des créneaux disponibles…" },
+  hm_agendar:   { pt:"Agendar horário", en:"Book appointment", es:"Reservar horario", fr:"Prendre rendez-vous" },
+  st_confirmado:{ pt:"Confirmado", en:"Confirmed", es:"Confirmado", fr:"Confirmé" },
+  st_proximo:   { pt:"Próximo", en:"Upcoming", es:"Próximo", fr:"À venir" },
+  st_realizado: { pt:"Realizado", en:"Completed", es:"Realizado", fr:"Effectué" },
+  ac_reagendar: { pt:"Reagendar", en:"Reschedule", es:"Reprogramar", fr:"Reporter" },
+  ac_cancelar:  { pt:"Cancelar", en:"Cancel", es:"Cancelar", fr:"Annuler" },
+  carregando:   { pt:"Carregando…", en:"Loading…", es:"Cargando…", fr:"Chargement…" },
+  carregando_ag:{ pt:"Carregando seus agendamentos…", en:"Loading your appointments…", es:"Cargando tus reservas…", fr:"Chargement de vos rendez-vous…" },
+  pix_label:    { pt:"Pix copia e cola:", en:"Pix copy & paste:", es:"Pix copiar y pegar:", fr:"Pix copier-coller :" },
+  pix_copiar:   { pt:"Copiar código Pix", en:"Copy Pix code", es:"Copiar código Pix", fr:"Copier le code Pix" },
+  pix_copiado:  { pt:"Copiado!", en:"Copied!", es:"¡Copiado!", fr:"Copié !" },
+};
+const traduzir = (idioma, chave, repl) => {
+  const e = STRINGS[chave];
+  let s = (e && (e[idioma] || e.pt)) || chave;
+  if (repl) Object.keys(repl).forEach(k => { s = s.replace("{"+k+"}", repl[k]); });
+  return s;
+};
+
 // ─── HELPERS ────────────────────────────────────────────────────────────
 const money = (v) => `R$ ${Number(v||0).toFixed(2).replace(".",",")}`;
 const maskTel = (v) => {
@@ -104,26 +253,218 @@ const maskTel = (v) => {
 };
 const telLimpo = (v) => String(v).replace(/\D/g,"");
 
-// Países para o seletor de DDI (Brasil primeiro). Bandeira + código.
+// Bandeira gerada a partir do código ISO de 2 letras (BR → 🇧🇷). Evita digitar emoji.
+const flagEmoji = (iso) => String(iso||"").toUpperCase().replace(/[A-Z]/g, c => String.fromCodePoint(0x1F1E6 + c.charCodeAt(0) - 65));
+// Países para o seletor de DDI (Brasil primeiro; resto em ordem alfabética).
 const PAISES = [
-  { ddi:"55",  flag:"🇧🇷", nome:"Brasil" },
-  { ddi:"351", flag:"🇵🇹", nome:"Portugal" },
-  { ddi:"1",   flag:"🇺🇸", nome:"EUA / Canadá" },
-  { ddi:"54",  flag:"🇦🇷", nome:"Argentina" },
-  { ddi:"595", flag:"🇵🇾", nome:"Paraguai" },
-  { ddi:"598", flag:"🇺🇾", nome:"Uruguai" },
-  { ddi:"56",  flag:"🇨🇱", nome:"Chile" },
-  { ddi:"57",  flag:"🇨🇴", nome:"Colômbia" },
-  { ddi:"34",  flag:"🇪🇸", nome:"Espanha" },
-  { ddi:"39",  flag:"🇮🇹", nome:"Itália" },
-  { ddi:"33",  flag:"🇫🇷", nome:"França" },
-  { ddi:"44",  flag:"🇬🇧", nome:"Reino Unido" },
-  { ddi:"49",  flag:"🇩🇪", nome:"Alemanha" },
-  { ddi:"81",  flag:"🇯🇵", nome:"Japão" },
-  { ddi:"244", flag:"🇦🇴", nome:"Angola" },
-  { ddi:"258", flag:"🇲🇿", nome:"Moçambique" },
+  { nome:"Brasil", iso:"BR", ddi:"55" },
+  { nome:"Afeganistão", iso:"AF", ddi:"93" },
+  { nome:"África do Sul", iso:"ZA", ddi:"27" },
+  { nome:"Albânia", iso:"AL", ddi:"355" },
+  { nome:"Alemanha", iso:"DE", ddi:"49" },
+  { nome:"Andorra", iso:"AD", ddi:"376" },
+  { nome:"Angola", iso:"AO", ddi:"244" },
+  { nome:"Anguila", iso:"AI", ddi:"1" },
+  { nome:"Antígua e Barbuda", iso:"AG", ddi:"1" },
+  { nome:"Arábia Saudita", iso:"SA", ddi:"966" },
+  { nome:"Argélia", iso:"DZ", ddi:"213" },
+  { nome:"Argentina", iso:"AR", ddi:"54" },
+  { nome:"Armênia", iso:"AM", ddi:"374" },
+  { nome:"Aruba", iso:"AW", ddi:"297" },
+  { nome:"Austrália", iso:"AU", ddi:"61" },
+  { nome:"Áustria", iso:"AT", ddi:"43" },
+  { nome:"Azerbaijão", iso:"AZ", ddi:"994" },
+  { nome:"Bahamas", iso:"BS", ddi:"1" },
+  { nome:"Bangladesh", iso:"BD", ddi:"880" },
+  { nome:"Barbados", iso:"BB", ddi:"1" },
+  { nome:"Barein", iso:"BH", ddi:"973" },
+  { nome:"Bélgica", iso:"BE", ddi:"32" },
+  { nome:"Belize", iso:"BZ", ddi:"501" },
+  { nome:"Benin", iso:"BJ", ddi:"229" },
+  { nome:"Bermudas", iso:"BM", ddi:"1" },
+  { nome:"Bielorrússia", iso:"BY", ddi:"375" },
+  { nome:"Bolívia", iso:"BO", ddi:"591" },
+  { nome:"Bósnia e Herzegovina", iso:"BA", ddi:"387" },
+  { nome:"Botsuana", iso:"BW", ddi:"267" },
+  { nome:"Brunei", iso:"BN", ddi:"673" },
+  { nome:"Bulgária", iso:"BG", ddi:"359" },
+  { nome:"Burquina Faso", iso:"BF", ddi:"226" },
+  { nome:"Burundi", iso:"BI", ddi:"257" },
+  { nome:"Butão", iso:"BT", ddi:"975" },
+  { nome:"Cabo Verde", iso:"CV", ddi:"238" },
+  { nome:"Camarões", iso:"CM", ddi:"237" },
+  { nome:"Camboja", iso:"KH", ddi:"855" },
+  { nome:"Canadá", iso:"CA", ddi:"1" },
+  { nome:"Catar", iso:"QA", ddi:"974" },
+  { nome:"Cazaquistão", iso:"KZ", ddi:"7" },
+  { nome:"Chade", iso:"TD", ddi:"235" },
+  { nome:"Chile", iso:"CL", ddi:"56" },
+  { nome:"China", iso:"CN", ddi:"86" },
+  { nome:"Chipre", iso:"CY", ddi:"357" },
+  { nome:"Cingapura", iso:"SG", ddi:"65" },
+  { nome:"Colômbia", iso:"CO", ddi:"57" },
+  { nome:"Comores", iso:"KM", ddi:"269" },
+  { nome:"Congo", iso:"CG", ddi:"242" },
+  { nome:"Congo (RDC)", iso:"CD", ddi:"243" },
+  { nome:"Coreia do Norte", iso:"KP", ddi:"850" },
+  { nome:"Coreia do Sul", iso:"KR", ddi:"82" },
+  { nome:"Costa do Marfim", iso:"CI", ddi:"225" },
+  { nome:"Costa Rica", iso:"CR", ddi:"506" },
+  { nome:"Croácia", iso:"HR", ddi:"385" },
+  { nome:"Cuba", iso:"CU", ddi:"53" },
+  { nome:"Dinamarca", iso:"DK", ddi:"45" },
+  { nome:"Djibuti", iso:"DJ", ddi:"253" },
+  { nome:"Dominica", iso:"DM", ddi:"1" },
+  { nome:"Egito", iso:"EG", ddi:"20" },
+  { nome:"El Salvador", iso:"SV", ddi:"503" },
+  { nome:"Emirados Árabes Unidos", iso:"AE", ddi:"971" },
+  { nome:"Equador", iso:"EC", ddi:"593" },
+  { nome:"Eritreia", iso:"ER", ddi:"291" },
+  { nome:"Eslováquia", iso:"SK", ddi:"421" },
+  { nome:"Eslovênia", iso:"SI", ddi:"386" },
+  { nome:"Espanha", iso:"ES", ddi:"34" },
+  { nome:"Estados Unidos", iso:"US", ddi:"1" },
+  { nome:"Estônia", iso:"EE", ddi:"372" },
+  { nome:"Eswatini", iso:"SZ", ddi:"268" },
+  { nome:"Etiópia", iso:"ET", ddi:"251" },
+  { nome:"Fiji", iso:"FJ", ddi:"679" },
+  { nome:"Filipinas", iso:"PH", ddi:"63" },
+  { nome:"Finlândia", iso:"FI", ddi:"358" },
+  { nome:"França", iso:"FR", ddi:"33" },
+  { nome:"Gabão", iso:"GA", ddi:"241" },
+  { nome:"Gâmbia", iso:"GM", ddi:"220" },
+  { nome:"Gana", iso:"GH", ddi:"233" },
+  { nome:"Geórgia", iso:"GE", ddi:"995" },
+  { nome:"Granada", iso:"GD", ddi:"1" },
+  { nome:"Grécia", iso:"GR", ddi:"30" },
+  { nome:"Groenlândia", iso:"GL", ddi:"299" },
+  { nome:"Guadalupe", iso:"GP", ddi:"590" },
+  { nome:"Guatemala", iso:"GT", ddi:"502" },
+  { nome:"Guiana", iso:"GY", ddi:"592" },
+  { nome:"Guiana Francesa", iso:"GF", ddi:"594" },
+  { nome:"Guiné", iso:"GN", ddi:"224" },
+  { nome:"Guiné Equatorial", iso:"GQ", ddi:"240" },
+  { nome:"Guiné-Bissau", iso:"GW", ddi:"245" },
+  { nome:"Haiti", iso:"HT", ddi:"509" },
+  { nome:"Holanda (Países Baixos)", iso:"NL", ddi:"31" },
+  { nome:"Honduras", iso:"HN", ddi:"504" },
+  { nome:"Hong Kong", iso:"HK", ddi:"852" },
+  { nome:"Hungria", iso:"HU", ddi:"36" },
+  { nome:"Iêmen", iso:"YE", ddi:"967" },
+  { nome:"Ilhas Cayman", iso:"KY", ddi:"1" },
+  { nome:"Ilhas Maldivas", iso:"MV", ddi:"960" },
+  { nome:"Ilhas Salomão", iso:"SB", ddi:"677" },
+  { nome:"Índia", iso:"IN", ddi:"91" },
+  { nome:"Indonésia", iso:"ID", ddi:"62" },
+  { nome:"Irã", iso:"IR", ddi:"98" },
+  { nome:"Iraque", iso:"IQ", ddi:"964" },
+  { nome:"Irlanda", iso:"IE", ddi:"353" },
+  { nome:"Islândia", iso:"IS", ddi:"354" },
+  { nome:"Israel", iso:"IL", ddi:"972" },
+  { nome:"Itália", iso:"IT", ddi:"39" },
+  { nome:"Jamaica", iso:"JM", ddi:"1" },
+  { nome:"Japão", iso:"JP", ddi:"81" },
+  { nome:"Jordânia", iso:"JO", ddi:"962" },
+  { nome:"Kosovo", iso:"XK", ddi:"383" },
+  { nome:"Kuwait", iso:"KW", ddi:"965" },
+  { nome:"Laos", iso:"LA", ddi:"856" },
+  { nome:"Lesoto", iso:"LS", ddi:"266" },
+  { nome:"Letônia", iso:"LV", ddi:"371" },
+  { nome:"Líbano", iso:"LB", ddi:"961" },
+  { nome:"Libéria", iso:"LR", ddi:"231" },
+  { nome:"Líbia", iso:"LY", ddi:"218" },
+  { nome:"Liechtenstein", iso:"LI", ddi:"423" },
+  { nome:"Lituânia", iso:"LT", ddi:"370" },
+  { nome:"Luxemburgo", iso:"LU", ddi:"352" },
+  { nome:"Macau", iso:"MO", ddi:"853" },
+  { nome:"Macedônia do Norte", iso:"MK", ddi:"389" },
+  { nome:"Madagascar", iso:"MG", ddi:"261" },
+  { nome:"Malásia", iso:"MY", ddi:"60" },
+  { nome:"Malaui", iso:"MW", ddi:"265" },
+  { nome:"Maldivas", iso:"MV", ddi:"960" },
+  { nome:"Mali", iso:"ML", ddi:"223" },
+  { nome:"Malta", iso:"MT", ddi:"356" },
+  { nome:"Marrocos", iso:"MA", ddi:"212" },
+  { nome:"Martinica", iso:"MQ", ddi:"596" },
+  { nome:"Maurício", iso:"MU", ddi:"230" },
+  { nome:"Mauritânia", iso:"MR", ddi:"222" },
+  { nome:"México", iso:"MX", ddi:"52" },
+  { nome:"Mianmar", iso:"MM", ddi:"95" },
+  { nome:"Micronésia", iso:"FM", ddi:"691" },
+  { nome:"Moçambique", iso:"MZ", ddi:"258" },
+  { nome:"Moldávia", iso:"MD", ddi:"373" },
+  { nome:"Mônaco", iso:"MC", ddi:"377" },
+  { nome:"Mongólia", iso:"MN", ddi:"976" },
+  { nome:"Montenegro", iso:"ME", ddi:"382" },
+  { nome:"Namíbia", iso:"NA", ddi:"264" },
+  { nome:"Nepal", iso:"NP", ddi:"977" },
+  { nome:"Nicarágua", iso:"NI", ddi:"505" },
+  { nome:"Níger", iso:"NE", ddi:"227" },
+  { nome:"Nigéria", iso:"NG", ddi:"234" },
+  { nome:"Noruega", iso:"NO", ddi:"47" },
+  { nome:"Nova Caledônia", iso:"NC", ddi:"687" },
+  { nome:"Nova Zelândia", iso:"NZ", ddi:"64" },
+  { nome:"Omã", iso:"OM", ddi:"968" },
+  { nome:"Palau", iso:"PW", ddi:"680" },
+  { nome:"Palestina", iso:"PS", ddi:"970" },
+  { nome:"Panamá", iso:"PA", ddi:"507" },
+  { nome:"Papua-Nova Guiné", iso:"PG", ddi:"675" },
+  { nome:"Paquistão", iso:"PK", ddi:"92" },
+  { nome:"Paraguai", iso:"PY", ddi:"595" },
+  { nome:"Peru", iso:"PE", ddi:"51" },
+  { nome:"Polinésia Francesa", iso:"PF", ddi:"689" },
+  { nome:"Polônia", iso:"PL", ddi:"48" },
+  { nome:"Porto Rico", iso:"PR", ddi:"1" },
+  { nome:"Portugal", iso:"PT", ddi:"351" },
+  { nome:"Quênia", iso:"KE", ddi:"254" },
+  { nome:"Quirguistão", iso:"KG", ddi:"996" },
+  { nome:"Reino Unido", iso:"GB", ddi:"44" },
+  { nome:"República Centro-Africana", iso:"CF", ddi:"236" },
+  { nome:"República Dominicana", iso:"DO", ddi:"1" },
+  { nome:"República Tcheca", iso:"CZ", ddi:"420" },
+  { nome:"Romênia", iso:"RO", ddi:"40" },
+  { nome:"Ruanda", iso:"RW", ddi:"250" },
+  { nome:"Rússia", iso:"RU", ddi:"7" },
+  { nome:"Samoa", iso:"WS", ddi:"685" },
+  { nome:"San Marino", iso:"SM", ddi:"378" },
+  { nome:"Santa Lúcia", iso:"LC", ddi:"1" },
+  { nome:"São Cristóvão e Névis", iso:"KN", ddi:"1" },
+  { nome:"São Tomé e Príncipe", iso:"ST", ddi:"239" },
+  { nome:"São Vicente e Granadinas", iso:"VC", ddi:"1" },
+  { nome:"Senegal", iso:"SN", ddi:"221" },
+  { nome:"Serra Leoa", iso:"SL", ddi:"232" },
+  { nome:"Sérvia", iso:"RS", ddi:"381" },
+  { nome:"Seychelles", iso:"SC", ddi:"248" },
+  { nome:"Síria", iso:"SY", ddi:"963" },
+  { nome:"Somália", iso:"SO", ddi:"252" },
+  { nome:"Sri Lanka", iso:"LK", ddi:"94" },
+  { nome:"Sudão", iso:"SD", ddi:"249" },
+  { nome:"Sudão do Sul", iso:"SS", ddi:"211" },
+  { nome:"Suécia", iso:"SE", ddi:"46" },
+  { nome:"Suíça", iso:"CH", ddi:"41" },
+  { nome:"Suriname", iso:"SR", ddi:"597" },
+  { nome:"Tailândia", iso:"TH", ddi:"66" },
+  { nome:"Taiwan", iso:"TW", ddi:"886" },
+  { nome:"Tajiquistão", iso:"TJ", ddi:"992" },
+  { nome:"Tanzânia", iso:"TZ", ddi:"255" },
+  { nome:"Timor-Leste", iso:"TL", ddi:"670" },
+  { nome:"Togo", iso:"TG", ddi:"228" },
+  { nome:"Tonga", iso:"TO", ddi:"676" },
+  { nome:"Trinidad e Tobago", iso:"TT", ddi:"1" },
+  { nome:"Tunísia", iso:"TN", ddi:"216" },
+  { nome:"Turcomenistão", iso:"TM", ddi:"993" },
+  { nome:"Turquia", iso:"TR", ddi:"90" },
+  { nome:"Ucrânia", iso:"UA", ddi:"380" },
+  { nome:"Uganda", iso:"UG", ddi:"256" },
+  { nome:"Uruguai", iso:"UY", ddi:"598" },
+  { nome:"Uzbequistão", iso:"UZ", ddi:"998" },
+  { nome:"Vanuatu", iso:"VU", ddi:"678" },
+  { nome:"Vaticano", iso:"VA", ddi:"379" },
+  { nome:"Venezuela", iso:"VE", ddi:"58" },
+  { nome:"Vietnã", iso:"VN", ddi:"84" },
+  { nome:"Zâmbia", iso:"ZM", ddi:"260" },
+  { nome:"Zimbábue", iso:"ZW", ddi:"263" },
 ];
-const flagDoDDI = (ddi) => { const p = PAISES.find(x=>x.ddi===String(ddi)); return p ? p.flag : "🌐"; };
 // número final guardado: Brasil = só os dígitos (como sempre foi, p/ não perder
 // cadastros); outros países = DDI + dígitos.
 const numeroFinal = (ddi, tel) => String(ddi)==="55" ? telLimpo(tel) : String(ddi)+telLimpo(tel);
@@ -645,6 +986,7 @@ const Shell = ({ children, step, total, onToggleTema }) => {
       `}</style>
       <div style={{width:"100%",maxWidth:460,padding:"0 0 40px",animation:"aqUp .35s cubic-bezier(.22,1,.36,1)",position:"relative"}}>
         {onToggleTema && <TemaToggle onToggle={onToggleTema} />}
+        <IdiomaToggle />
         {typeof step==="number" && (
           <div style={{display:"flex",gap:5,padding:"16px 22px 0"}}>
             {Array.from({length:total}).map((_,i)=>(
@@ -669,14 +1011,29 @@ const TemaToggle = ({ onToggle }) => {
     }}>{escuro ? "☀" : "☾"}</button>
   );
 };
+// Botão de idioma: mostra a bandeira atual e cicla para o próximo idioma ao tocar.
+const IdiomaToggle = () => {
+  const T = useT();
+  const idioma = useIdioma();
+  const i = Math.max(0, IDIOMAS.findIndex(x=>x.cod===idioma));
+  const trocar = () => { const prox = IDIOMAS[(i+1) % IDIOMAS.length]; window.dispatchEvent(new CustomEvent("aq-set-idioma", { detail: prox.cod })); };
+  return (
+    <button onClick={trocar} aria-label="Mudar idioma" title={IDIOMAS[i].nome} className="aq-btn" style={{
+      position:"absolute",top:14,right:64,zIndex:50,height:40,padding:"0 10px",borderRadius:12,cursor:"pointer",gap:5,
+      border:`1px solid ${T.line}`,background:T.card,color:T.ink,fontSize:15,display:"flex",alignItems:"center",justifyContent:"center",
+      transition:"all .2s",fontFamily:T.sans,fontWeight:700,
+    }}>{IDIOMAS[i].flag}<span style={{fontSize:11,color:T.muted}}>{IDIOMAS[i].cod.toUpperCase()}</span></button>
+  );
+};
 
 const Header = ({ titulo, sub, onBack }) => {
   const T = useT();
+  const idioma = useIdioma();
   return (
     <div style={{padding:"20px 22px 8px"}}>
       {onBack && (
         <button onClick={onBack} className="aq-btn" style={{border:"none",background:"none",color:T.muted,fontSize:14,cursor:"pointer",padding:"4px 0",marginBottom:8,fontFamily:T.sans}}>
-          ← Voltar
+          {traduzir(idioma,"voltar")}
         </button>
       )}
       <h1 style={{fontFamily:T.serif,fontWeight:600,fontSize:26,margin:0,lineHeight:1.15,letterSpacing:"-0.01em",color:T.ink}}>{titulo}</h1>
@@ -701,6 +1058,8 @@ const Primary = ({ children, onClick, disabled }) => {
 // (no celular o próprio sistema oferece as duas opções). Mostra prévia e spinner.
 const FotoPicker = ({ fotoUrl, iniciais, enviando, onEscolher }) => {
   const T = useT();
+  const idioma = useIdioma();
+  const t = (k) => traduzir(idioma, k);
   const inputRef = useRef(null);
   return (
     <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:10}}>
@@ -710,14 +1069,14 @@ const FotoPicker = ({ fotoUrl, iniciais, enviando, onEscolher }) => {
           display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:700,fontSize:34,
           border:`2px solid ${T.brassLine}`,boxShadow:T.shadowBtn,overflow:"hidden"}}>
         {!fotoUrl && !enviando && (iniciais || "?")}
-        {enviando && <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,.45)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:600}}>Enviando…</div>}
+        {enviando && <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,.45)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:600}}>{t("foto_enviando")}</div>}
         {!enviando && (
           <div style={{position:"absolute",right:0,bottom:0,width:30,height:30,borderRadius:"50%",background:T.brass,border:`2px solid ${T.bg}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14}}>📷</div>
         )}
       </div>
       <button onClick={()=>!enviando && inputRef.current && inputRef.current.click()} className="aq-btn"
         style={{background:"none",border:"none",color:T.brass,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:T.sans}}>
-        {fotoUrl ? "Trocar foto" : "Adicionar foto"}
+        {fotoUrl ? t("foto_trocar") : t("foto_add")}
       </button>
       <input ref={inputRef} type="file" accept="image/*" style={{display:"none"}}
         onChange={(e)=>{ const f = e.target.files && e.target.files[0]; if (f) onEscolher(f); e.target.value=""; }}/>
@@ -729,6 +1088,8 @@ const FotoPicker = ({ fotoUrl, iniciais, enviando, onEscolher }) => {
 // Recebe a lista (deps) e o setter (setDeps). Cada item: { nome, nascimento(yyyy-mm-dd) }.
 const DependentesEditor = ({ deps, setDeps }) => {
   const T = useT();
+  const idioma = useIdioma();
+  const t = (k) => traduzir(idioma, k);
   const ligado = deps.length > 0;
   const inputBase = {width:"100%",padding:"12px 14px",fontSize:15,borderRadius:11,border:`1.5px solid ${T.line}`,background:T.card,fontFamily:T.sans,outline:"none",color:T.ink};
   const setCampo = (i, campo, val) => setDeps(deps.map((d,idx)=> idx===i ? {...d,[campo]:val} : d));
@@ -739,7 +1100,7 @@ const DependentesEditor = ({ deps, setDeps }) => {
       <label style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer"}}>
         <input type="checkbox" checked={ligado} onChange={(e)=> e.target.checked ? adicionar() : setDeps([])}
           style={{width:18,height:18,accentColor:T.brass,cursor:"pointer",flexShrink:0}}/>
-        <span style={{fontSize:14,fontWeight:600,color:T.ink2}}>Tenho dependentes que também atendo aqui</span>
+        <span style={{fontSize:14,fontWeight:600,color:T.ink2}}>{t("dep_toggle")}</span>
       </label>
       {ligado && (
         <div style={{marginTop:12}}>
@@ -748,10 +1109,10 @@ const DependentesEditor = ({ deps, setDeps }) => {
             return (
               <div key={i} style={{marginBottom:12,paddingBottom:12,borderBottom:i<deps.length-1?`1px dashed ${T.line}`:"none"}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-                  <span style={{fontSize:12,fontWeight:700,color:T.muted}}>Dependente {i+1}{idade?` · ${idade}`:""}</span>
-                  <button onClick={()=>remover(i)} className="aq-btn" style={{background:"none",border:"none",color:T.danger,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:T.sans,padding:0}}>Remover</button>
+                  <span style={{fontSize:12,fontWeight:700,color:T.muted}}>{t("dep_label")} {i+1}{idade?` · ${idade}`:""}</span>
+                  <button onClick={()=>remover(i)} className="aq-btn" style={{background:"none",border:"none",color:T.danger,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:T.sans,padding:0}}>{t("dep_remover")}</button>
                 </div>
-                <input value={d.nome} onChange={(e)=>setCampo(i,"nome",e.target.value)} placeholder="Nome do dependente"
+                <input value={d.nome} onChange={(e)=>setCampo(i,"nome",e.target.value)} placeholder={t("dep_nome_ph")}
                   style={inputBase} onFocus={(e)=>e.target.style.borderColor=T.brass} onBlur={(e)=>e.target.style.borderColor=T.line}/>
                 <input value={d.nascimento} onChange={(e)=>setCampo(i,"nascimento",e.target.value)} type="date" max={hojeISO()} min="1900-01-01"
                   style={{...inputBase,marginTop:8,colorScheme:T.name==="dark"?"dark":"light"}}
@@ -759,7 +1120,7 @@ const DependentesEditor = ({ deps, setDeps }) => {
               </div>
             );
           })}
-          <button onClick={adicionar} className="aq-btn" style={{width:"100%",padding:"11px",marginBottom:10,borderRadius:11,border:`1.5px dashed ${T.line}`,background:"transparent",color:T.brass,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:T.sans}}>+ Adicionar outro dependente</button>
+          <button onClick={adicionar} className="aq-btn" style={{width:"100%",padding:"11px",marginBottom:10,borderRadius:11,border:`1.5px dashed ${T.line}`,background:"transparent",color:T.brass,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:T.sans}}>{t("dep_add")}</button>
         </div>
       )}
     </div>
@@ -792,11 +1153,13 @@ const Icon = ({ name, size=20, stroke=1.8 }) => {
 // barra de navegação inferior — FIXA na base do celular, centralizada na coluna
 const BottomNav = ({ ativo, onNav }) => {
   const T = useT();
+  const idioma = useIdioma();
+  const t = (k) => traduzir(idioma, k);
   const tabs = [
-    { id:HOME,   icon:"home",     label:"Início"    },
-    { id:1,      icon:"calendar", label:"Agendar"   },
-    { id:HIST,   icon:"clock",    label:"Agenda"    },
-    { id:PERFIL, icon:"user",     label:"Perfil"    },
+    { id:HOME,   icon:"home",     label:t("nav_inicio")  },
+    { id:1,      icon:"calendar", label:t("nav_agendar") },
+    { id:HIST,   icon:"clock",    label:t("nav_agenda")  },
+    { id:PERFIL, icon:"user",     label:t("nav_perfil")  },
   ];
   return (
     <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:460,background:T.card,borderTop:`1px solid ${T.line}`,display:"flex",justifyContent:"space-around",padding:"10px 0 calc(12px + env(safe-area-inset-bottom, 0px))",zIndex:50,boxShadow:T.name==="dark"?"0 -6px 20px rgba(0,0,0,.35)":"0 -6px 20px rgba(0,0,0,.06)"}}>
@@ -826,6 +1189,7 @@ const Linha = ({ label, valor }) => {
 // cartão "Inspiração do dia" — data, signo, lua, estação, comemorações e frase
 const InspiracaoCard = ({ fraseIdx }) => {
   const T = useT();
+  const idioma = useIdioma();
   const hoje = new Date();
   const coms = comemoracoesDe(hoje);
   const chips = [signoDe(hoje), faseLuaDe(hoje), estacaoDe(hoje)];
@@ -839,7 +1203,7 @@ const InspiracaoCard = ({ fraseIdx }) => {
       </div>
       {coms.length>0 && (
         <div style={{marginTop:10,color:T.ink2,fontSize:12.5,lineHeight:1.5}}>
-          <span style={{color:T.muted}}>Hoje também se celebra: </span>{coms.join(" · ")}
+          <span style={{color:T.muted}}>{traduzir(idioma,"insp_hoje")}</span>{coms.join(" · ")}
         </div>
       )}
       <div style={{height:1,background:T.line,margin:"14px 0"}}/>
@@ -907,9 +1271,12 @@ const HOME = 7, HIST = 8, PERFIL = 9, EDITAR_PERFIL = 10;
 
 function Portal() {
   const T = useT();
+  const idioma = useIdioma();
+  const t = (k, r) => traduzir(idioma, k, r);
   const [step, setStep] = useState(0);            // 0 tel · 1 serviço · 2 barbeiro · 3 data/hora · 4 dados · 5 sinal · 6 ok · 7 home · 8 histórico
   const [tel, setTel] = useState("");
   const [ddi, setDdi] = useState("55");   // DDI do país (Brasil por padrão, trocável)
+  const [paisIso, setPaisIso] = useState("BR"); // ISO do país escolhido (p/ bandeira; vários dividem o DDI)
   const [clienteExistente, setClienteExistente] = useState(null);
   const [nome, setNome] = useState("");
   const [sobrenome, setSobrenome] = useState("");                 // Fatia A — separado para UX
@@ -981,7 +1348,7 @@ function Portal() {
   const avancarTelefone = async () => {
     const limpo = numeroFinal(ddi, tel);
     const minOk = ddi==="55" ? telLimpo(tel).length>=10 : telLimpo(tel).length>=6;
-    if (!minOk) { setErro("Digite um número de WhatsApp válido."); return; }
+    if (!minOk) { setErro(t("t0_tel_inval")); return; }
     setErro(""); setVerificando(true);
     try {
       const r = await api.verificarCliente(limpo);
@@ -1020,14 +1387,14 @@ function Portal() {
 
   // ── enviar agendamento ──
   const confirmar = async () => {
-    if (!nome.trim()) { setErro("Por favor, informe seu nome."); return; }
-    if (!sobrenome.trim()) { setErro("Informe seu sobrenome."); return; }       // Fatia A
+    if (!nome.trim()) { setErro(t("err_nome")); return; }
+    if (!sobrenome.trim()) { setErro(t("err_sobrenome")); return; }       // Fatia A
     if (!nascValido(nascimento)) {                                              // R2 — obrigatório
-      setErro("Informe uma data de nascimento válida.");
+      setErro(t("err_nasc"));
       return;
     }
-    if (!emailValido(email)) { setErro("Informe um e-mail válido."); return; }  // Fatia A
-    if (!fotoUrl) { setErro("Adicione uma foto de perfil para concluir."); return; } // obrigatória
+    if (!emailValido(email)) { setErro(t("err_email")); return; }  // Fatia A
+    if (!fotoUrl) { setErro(t("err_foto")); return; } // obrigatória
     setErro(""); setEnviando(true);
     try {
       const r = await api.agendar({
@@ -1092,11 +1459,11 @@ function Portal() {
 
   // ── salvar perfil (Fatia A — tela Editar perfil) ──
   const salvarPerfil = async () => {
-    if (!nome.trim()) { setErro("Informe seu nome."); return; }
-    if (!sobrenome.trim()) { setErro("Informe seu sobrenome."); return; }
-    if (!nascValido(nascimento)) { setErro("Informe uma data de nascimento válida."); return; }
-    if (!emailValido(email)) { setErro("Informe um e-mail válido."); return; }
-    if (!fotoUrl) { setErro("Adicione uma foto de perfil."); return; }
+    if (!nome.trim()) { setErro(t("err_nome")); return; }
+    if (!sobrenome.trim()) { setErro(t("err_sobrenome")); return; }
+    if (!nascValido(nascimento)) { setErro(t("err_nasc")); return; }
+    if (!emailValido(email)) { setErro(t("err_email")); return; }
+    if (!fotoUrl) { setErro(t("err_foto")); return; }
     setErro(""); setSalvandoPerfil(true);
     try {
       const r = await api.atualizarPerfil({
@@ -1112,7 +1479,7 @@ function Portal() {
         // atualiza clienteExistente local pra refletir mudança sem nova chamada
         const novoNomeCompleto = `${nome.trim()} ${sobrenome.trim()}`;
         setClienteExistente(c => ({ ...(c||{}), nome: novoNomeCompleto, email: email.trim(), nascimento: nascParaBackend(nascimento), foto: fotoUrl }));
-        setAviso({ tipo:"ok", txt:"Perfil atualizado!" });
+        setAviso({ tipo:"ok", txt:t("ed_perfil_ok") });
         setStep(PERFIL);
       } else {
         setErro((r && r.error) || "Não foi possível salvar. Tente novamente.");
@@ -1130,7 +1497,7 @@ function Portal() {
   };
 
   const resetTudo = () => {
-    setStep(0); setTel(""); setDdi("55"); setServSel(null); setBarbSel(null); setDataSel(null); setHoraSel(null);
+    setStep(0); setTel(""); setDdi("55"); setPaisIso("BR"); setServSel(null); setBarbSel(null); setDataSel(null); setHoraSel(null);
     setNome(""); setSobrenome(""); setEmail(""); setNascimento(""); setObs("");
     setDependentes([]); setParaQuem(-1); setFotoUrl("");
     setResultado(null); setClienteExistente(null); setReagendandoId(null);
@@ -1165,30 +1532,30 @@ function Portal() {
         <div style={{color:T.brass,fontSize:13,fontWeight:600,letterSpacing:"0.16em",textTransform:"uppercase",marginTop:2}}>{BARBEARIA.sub}</div>
       </div>
       <div style={{padding:"32px 22px 0"}}>
-        <h1 style={{fontFamily:T.serif,fontWeight:600,fontSize:24,margin:"0 0 6px",lineHeight:1.2,color:T.ink}}>Agende seu horário</h1>
-        <p style={{color:T.muted,fontSize:14,margin:"0 0 22px"}}>Em poucos toques. Comece com seu WhatsApp.</p>
-        <label style={{fontSize:13,fontWeight:600,color:T.ink2}}>Seu WhatsApp</label>
+        <h1 style={{fontFamily:T.serif,fontWeight:600,fontSize:24,margin:"0 0 6px",lineHeight:1.2,color:T.ink}}>{t("t0_titulo")}</h1>
+        <p style={{color:T.muted,fontSize:14,margin:"0 0 22px"}}>{t("t0_sub")}</p>
+        <label style={{fontSize:13,fontWeight:600,color:T.ink2}}>{t("t0_label")}</label>
         <div style={{display:"flex",gap:8,marginTop:8}}>
           <div style={{position:"relative",flexShrink:0}}>
             <select
-              value={PAISES.findIndex(p=>p.ddi===ddi)>=0?PAISES.findIndex(p=>p.ddi===ddi):0}
-              onChange={(e)=>{ const p = PAISES[Number(e.target.value)]; setDdi(p.ddi); setTel(p.ddi==="55"?maskTel(telLimpo(tel)):telLimpo(tel)); }}
+              value={Math.max(0, PAISES.findIndex(p=>p.iso===paisIso))}
+              onChange={(e)=>{ const p = PAISES[Number(e.target.value)]; setDdi(p.ddi); setPaisIso(p.iso); setTel(p.ddi==="55"?maskTel(telLimpo(tel)):telLimpo(tel)); }}
               aria-label="País / DDI"
-              style={{appearance:"none",WebkitAppearance:"none",height:"100%",padding:"15px 26px 15px 14px",fontSize:16,borderRadius:13,border:`1.5px solid ${T.line}`,background:T.card,fontFamily:T.sans,color:T.ink,outline:"none",cursor:"pointer"}}>
-              {PAISES.map((p,i)=>(<option key={i} value={i}>{p.flag} +{p.ddi}</option>))}
+              style={{appearance:"none",WebkitAppearance:"none",maxWidth:128,height:"100%",padding:"15px 26px 15px 14px",fontSize:16,borderRadius:13,border:`1.5px solid ${T.line}`,background:T.card,fontFamily:T.sans,color:T.ink,outline:"none",cursor:"pointer"}}>
+              {PAISES.map((p,i)=>(<option key={i} value={i}>{flagEmoji(p.iso)} {p.nome} +{p.ddi}</option>))}
             </select>
             <span style={{position:"absolute",right:9,top:"50%",transform:"translateY(-50%)",pointerEvents:"none",color:T.muted,fontSize:11}}>▼</span>
           </div>
           <input
             value={tel} onChange={(e)=>setTel(ddi==="55"?maskTel(e.target.value):telLimpo(e.target.value).slice(0,15))} type="tel" inputMode="numeric"
-            placeholder={ddi==="55"?"(31) 99999-9999":"número com DDD"} autoFocus
+            placeholder={ddi==="55"?t("t0_ph_br"):t("t0_ph_intl")} autoFocus
             style={{flex:1,minWidth:0,padding:"15px 16px",fontSize:17,borderRadius:13,border:`1.5px solid ${T.line}`,background:T.card,fontFamily:T.sans,outline:"none",color:T.ink}}
             onFocus={(e)=>e.target.style.borderColor=T.brass}
             onBlur={(e)=>e.target.style.borderColor=T.line}
             onKeyDown={(e)=>e.key==="Enter"&&avancarTelefone()}
           />
         </div>
-        {ddi!=="55" && <div style={{fontSize:11,color:T.muted,marginTop:6}}>{flagDoDDI(ddi)} Código internacional +{ddi} selecionado.</div>}
+        {ddi!=="55" && <div style={{fontSize:11,color:T.muted,marginTop:6}}>{flagEmoji(paisIso)} {t("t0_ddi_aviso")} +{ddi} {t("t0_ddi_fim")}</div>}
         {erro && <div style={{color:T.danger,fontSize:13,marginTop:8}}>{erro}</div>}
       </div>
       <Bottom>
@@ -1196,14 +1563,14 @@ function Portal() {
           <input type="checkbox" checked={aceito} onChange={(e)=>setAceito(e.target.checked)}
             style={{width:20,height:20,marginTop:1,accentColor:T.brass,flexShrink:0,cursor:"pointer"}}/>
           <span style={{fontSize:12.5,color:T.ink2,lineHeight:1.5}}>
-            Li e concordo com a{" "}
+            {t("t0_li_concordo")}{" "}
             <button type="button" onClick={(e)=>{e.preventDefault();setLegalModal("privacidade");}}
-              style={{background:"none",border:"none",padding:0,color:T.brass,fontWeight:700,textDecoration:"underline",cursor:"pointer",fontSize:12.5,fontFamily:T.sans}}>Política de Privacidade</button>{" "}e os{" "}
+              style={{background:"none",border:"none",padding:0,color:T.brass,fontWeight:700,textDecoration:"underline",cursor:"pointer",fontSize:12.5,fontFamily:T.sans}}>{t("t0_privacidade")}</button>{" "}{t("t0_e_os")}{" "}
             <button type="button" onClick={(e)=>{e.preventDefault();setLegalModal("termos");}}
-              style={{background:"none",border:"none",padding:0,color:T.brass,fontWeight:700,textDecoration:"underline",cursor:"pointer",fontSize:12.5,fontFamily:T.sans}}>Termos de Uso</button>.
+              style={{background:"none",border:"none",padding:0,color:T.brass,fontWeight:700,textDecoration:"underline",cursor:"pointer",fontSize:12.5,fontFamily:T.sans}}>{t("t0_termos")}</button>.
           </span>
         </label>
-        <Primary onClick={avancarTelefone} disabled={(ddi==="55"?telLimpo(tel).length<10:telLimpo(tel).length<6) || !aceito || verificando}>{verificando?"Verificando…":"Continuar"}</Primary>
+        <Primary onClick={avancarTelefone} disabled={(ddi==="55"?telLimpo(tel).length<10:telLimpo(tel).length<6) || !aceito || verificando}>{verificando?t("t0_verificando"):t("continuar")}</Primary>
       </Bottom>
     </Shell>
     {legalModal && <LegalModal tipo={legalModal} onClose={()=>setLegalModal(null)} />}
@@ -1217,7 +1584,7 @@ function Portal() {
       <Shell onToggleTema={onToggleTema}>
         <div style={{padding:"56px 22px 4px"}}>
           <div style={{color:T.muted,fontSize:11,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:4}}>Olá, {primeiroNome(clienteExistente?.nome) || "cliente"}</div>
-          <div style={{fontFamily:T.serif,color:T.ink,fontWeight:700,fontSize:24,letterSpacing:"-0.01em"}}>Seu próximo horário</div>
+          <div style={{fontFamily:T.serif,color:T.ink,fontWeight:700,fontSize:24,letterSpacing:"-0.01em"}}>{t("hm_proximo")}</div>
         </div>
 
         {aviso && (
@@ -1231,12 +1598,12 @@ function Portal() {
 
         <div style={{padding:"14px 22px 0"}}>
           {carregandoArea ? (
-            <div style={{textAlign:"center",color:T.muted,fontSize:13,padding:"24px 0"}}>Carregando seus agendamentos…</div>
+            <div style={{textAlign:"center",color:T.muted,fontSize:13,padding:"24px 0"}}>{t("carregando_ag")}</div>
           ) : proximoAg ? (
             <div style={{background:T.name==="dark"?`linear-gradient(135deg,#161006,${T.card})`:T.card,border:`1px solid ${T.brassLine}`,borderRadius:16,padding:"16px"}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
                 <div>
-                  <div style={{color:T.brass,fontSize:10,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:4}}>Confirmado</div>
+                  <div style={{color:T.brass,fontSize:10,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:4}}>{t("st_confirmado")}</div>
                   <div style={{color:T.ink,fontWeight:700,fontSize:17}}>{proximoAg.servico}</div>
                   {proximoAg.para && <div style={{color:T.brass,fontSize:12.5,fontWeight:600,marginTop:3}}>Para: {proximoAg.para}</div>}
                   <div style={{color:T.muted,fontSize:12.5,marginTop:4}}>{labelData(proximoAg._d)} · {proximoAg._h}</div>
@@ -1244,16 +1611,16 @@ function Portal() {
                 <div style={{width:44,height:44,borderRadius:12,background:T.brassTint,border:`1px solid ${T.brassLine}`,display:"flex",alignItems:"center",justifyContent:"center",color:T.brass}}><Icon name="scissors" size={22}/></div>
               </div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                <button onClick={()=>iniciarReagendar(proximoAg)} className="aq-btn" style={{background:T.brass,border:"none",borderRadius:10,padding:"11px",cursor:"pointer",color:"#0C0C0C",fontWeight:700,fontSize:13,fontFamily:T.sans}}>Reagendar</button>
-                <button onClick={()=>cancelarAg(proximoAg)} className="aq-btn" style={{background:T.name==="dark"?T.card2:T.bg1,border:`1px solid ${T.line}`,borderRadius:10,padding:"11px",cursor:"pointer",color:T.muted,fontWeight:600,fontSize:13,fontFamily:T.sans}}>Cancelar</button>
+                <button onClick={()=>iniciarReagendar(proximoAg)} className="aq-btn" style={{background:T.brass,border:"none",borderRadius:10,padding:"11px",cursor:"pointer",color:"#0C0C0C",fontWeight:700,fontSize:13,fontFamily:T.sans}}>{t("ac_reagendar")}</button>
+                <button onClick={()=>cancelarAg(proximoAg)} className="aq-btn" style={{background:T.name==="dark"?T.card2:T.bg1,border:`1px solid ${T.line}`,borderRadius:10,padding:"11px",cursor:"pointer",color:T.muted,fontWeight:600,fontSize:13,fontFamily:T.sans}}>{t("ac_cancelar")}</button>
               </div>
             </div>
           ) : (
             <div style={{background:T.card,border:`1px solid ${T.line}`,borderRadius:16,padding:"20px 16px",textAlign:"center"}}>
               <div style={{color:T.brass,marginBottom:8,display:"flex",justifyContent:"center"}}><Icon name="calendar" size={30} stroke={1.6}/></div>
-              <div style={{color:T.ink,fontWeight:700,fontSize:15}}>Nenhum horário marcado</div>
-              <div style={{color:T.muted,fontSize:13,margin:"4px 0 12px"}}>Que tal agendar agora?</div>
-              <button onClick={()=>{ setReagendandoId(null); setServSel(null); setStep(1); }} className="aq-btn" style={{background:`linear-gradient(150deg,${T.brass},${T.brassDeep})`,border:"none",borderRadius:11,padding:"12px 22px",cursor:"pointer",color:"#fff",fontWeight:700,fontSize:14,fontFamily:T.sans}}>Agendar horário</button>
+              <div style={{color:T.ink,fontWeight:700,fontSize:15}}>{t("hm_nenhum")}</div>
+              <div style={{color:T.muted,fontSize:13,margin:"4px 0 12px"}}>{t("hm_que_tal")}</div>
+              <button onClick={()=>{ setReagendandoId(null); setServSel(null); setStep(1); }} className="aq-btn" style={{background:`linear-gradient(150deg,${T.brass},${T.brassDeep})`,border:"none",borderRadius:11,padding:"12px 22px",cursor:"pointer",color:"#fff",fontWeight:700,fontSize:14,fontFamily:T.sans}}>{t("hm_agendar")}</button>
             </div>
           )}
         </div>
@@ -1292,12 +1659,12 @@ function Portal() {
       .sort((a,b)=>(b._d+b._h).localeCompare(a._d+a._h));
     return (
       <Shell onToggleTema={onToggleTema}>
-        <Header titulo="Seus agendamentos" sub={`${ordenados.length} agendamento${ordenados.length===1?"":"s"}`} onBack={()=>setStep(HOME)}/>
+        <Header titulo={t("ag_titulo")} sub={`${ordenados.length} ${ordenados.length===1?t("ag_n_um"):t("ag_n_varios")}`} onBack={()=>setStep(HOME)}/>
         <div style={{padding:"8px 22px 0",display:"flex",flexDirection:"column",gap:10}}>
           {carregandoArea ? (
-            <div style={{textAlign:"center",color:T.muted,fontSize:13,padding:"30px 0"}}>Carregando…</div>
+            <div style={{textAlign:"center",color:T.muted,fontSize:13,padding:"30px 0"}}>{t("carregando")}</div>
           ) : ordenados.length===0 ? (
-            <div style={{textAlign:"center",color:T.muted,fontSize:13,padding:"30px 0"}}>Você ainda não tem agendamentos registrados.</div>
+            <div style={{textAlign:"center",color:T.muted,fontSize:13,padding:"30px 0"}}>{t("ag_vazio")}</div>
           ) : ordenados.map((a,i)=>{
             const futuro = a._d >= hojeISO();
             return (
@@ -1309,7 +1676,7 @@ function Portal() {
                 </div>
                 <div style={{display:"flex",alignItems:"center",gap:10}}>
                   <span style={{color:T.muted,fontSize:13,fontWeight:600}}>{money(a.preco)}</span>
-                  <span style={{fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:99,background:futuro?T.brassTint:T.line,color:futuro?T.brass:T.muted}}>{futuro?"Próximo":"Realizado"}</span>
+                  <span style={{fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:99,background:futuro?T.brassTint:T.line,color:futuro?T.brass:T.muted}}>{futuro?t("st_proximo"):t("st_realizado")}</span>
                 </div>
               </div>
             );
@@ -1327,7 +1694,7 @@ function Portal() {
     const inic = (primeiroNome(clienteExistente?.nome)[0] || "?").toUpperCase();
     return (
       <Shell onToggleTema={onToggleTema}>
-        <Header titulo="Seu perfil" onBack={()=>setStep(HOME)}/>
+        <Header titulo={t("pf_titulo")} onBack={()=>setStep(HOME)}/>
 
         {aviso && (
           <div style={{margin:"4px 22px 0",padding:"11px 14px",borderRadius:12,fontSize:13,
@@ -1350,36 +1717,36 @@ function Portal() {
           {/* Seus dados — leitura. Editar abre tela própria */}
           <div style={{background:T.card,border:`1px solid ${T.line}`,borderRadius:16,padding:"16px 18px",marginTop:12}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-              <span style={{color:T.muted,fontSize:11,letterSpacing:"0.12em",textTransform:"uppercase"}}>Seus dados</span>
-              <button onClick={()=>{ setErro(""); setStep(EDITAR_PERFIL); }} className="aq-btn" style={{background:"none",border:"none",color:T.brass,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:T.sans,padding:0}}>Editar ✎</button>
+              <span style={{color:T.muted,fontSize:11,letterSpacing:"0.12em",textTransform:"uppercase"}}>{t("pf_seus_dados")}</span>
+              <button onClick={()=>{ setErro(""); setStep(EDITAR_PERFIL); }} className="aq-btn" style={{background:"none",border:"none",color:T.brass,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:T.sans,padding:0}}>{t("pf_editar")}</button>
             </div>
-            <Linha label="Nome" valor={clienteExistente?.nome || "—"}/>
-            {calcIdade(nascParaInput(clienteExistente?.nascimento)) && <Linha label="Idade" valor={calcIdade(nascParaInput(clienteExistente?.nascimento))}/>}
-            <Linha label="Nascimento" valor={nascBR(clienteExistente?.nascimento)}/>
-            <Linha label="E-mail" valor={clienteExistente?.email || "—"}/>
+            <Linha label={t("t4_nome")} valor={clienteExistente?.nome || "—"}/>
+            {calcIdade(nascParaInput(clienteExistente?.nascimento)) && <Linha label={t("pf_idade")} valor={calcIdade(nascParaInput(clienteExistente?.nascimento))}/>}
+            <Linha label={t("t4_nascimento")} valor={nascBR(clienteExistente?.nascimento)}/>
+            <Linha label={t("t4_email")} valor={clienteExistente?.email || "—"}/>
           </div>
 
           {/* Dependentes — nome, idade e nascimento (sem e-mail) */}
           {dependentes.length > 0 && (
             <div style={{background:T.card,border:`1px solid ${T.line}`,borderRadius:16,padding:"16px 18px",marginTop:12}}>
-              <div style={{color:T.muted,fontSize:11,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:8}}>Dependentes</div>
+              <div style={{color:T.muted,fontSize:11,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:8}}>{t("pf_dependentes")}</div>
               {dependentes.map((d,i)=>(
                 <div key={i} style={{paddingBottom:i<dependentes.length-1?12:0,marginBottom:i<dependentes.length-1?12:0,borderBottom:i<dependentes.length-1?`1px dashed ${T.line}`:"none"}}>
                   <div style={{color:T.ink,fontWeight:700,fontSize:15,marginBottom:4}}>{d.nome}</div>
-                  {calcIdade(d.nascimento) && <Linha label="Idade" valor={calcIdade(d.nascimento)}/>}
-                  <Linha label="Nascimento" valor={nascBR(d.nascimento)}/>
+                  {calcIdade(d.nascimento) && <Linha label={t("pf_idade")} valor={calcIdade(d.nascimento)}/>}
+                  <Linha label={t("t4_nascimento")} valor={nascBR(d.nascimento)}/>
                 </div>
               ))}
             </div>
           )}
 
           <div style={{background:T.card,border:`1px solid ${T.line}`,borderRadius:16,padding:"16px 18px",marginTop:12}}>
-            <Linha label="Nível de fidelidade" valor={`✦ ${fid.nivel}`}/>
-            <Linha label="Visitas" valor={`${fid.visitas}`}/>
-            <Linha label="Próximo nível" valor={fid.prox ? `${fid.prox} (faltam ${fid.faltam})` : "Máximo atingido"}/>
+            <Linha label={t("pf_fidelidade")} valor={`✦ ${fid.nivel}`}/>
+            <Linha label={t("pf_visitas")} valor={`${fid.visitas}`}/>
+            <Linha label={t("pf_prox_nivel")} valor={fid.prox ? `${fid.prox} (${t("pf_faltam")} ${fid.faltam})` : t("pf_max")}/>
           </div>
           <div style={{marginTop:18}}>
-            <button onClick={resetTudo} className="aq-btn" style={{width:"100%",padding:"14px",borderRadius:12,border:`1.5px solid ${T.line}`,background:"transparent",color:T.muted,fontWeight:600,fontSize:14,cursor:"pointer",fontFamily:T.sans}}>Sair / trocar de número</button>
+            <button onClick={resetTudo} className="aq-btn" style={{width:"100%",padding:"14px",borderRadius:12,border:`1.5px solid ${T.line}`,background:"transparent",color:T.muted,fontWeight:600,fontSize:14,cursor:"pointer",fontFamily:T.sans}}>{t("pf_sair")}</button>
           </div>
         </div>
         <div style={{height:88}}/>
@@ -1393,31 +1760,31 @@ function Portal() {
     const podeSalvar = !salvandoPerfil && !enviandoFoto && nome.trim() && sobrenome.trim() && nascValido(nascimento) && emailValido(email) && fotoUrl;
     return (
       <Shell onToggleTema={onToggleTema}>
-        <Header titulo="Editar perfil" sub="Atualize seus dados — todos obrigatórios." onBack={()=>{ setErro(""); setStep(PERFIL); }}/>
+        <Header titulo={t("ed_titulo")} sub={t("ed_sub")} onBack={()=>{ setErro(""); setStep(PERFIL); }}/>
         <div style={{padding:"4px 22px 0"}}>
           <div style={{marginBottom:10,display:"flex",flexDirection:"column",alignItems:"center"}}>
             <FotoPicker fotoUrl={fotoUrl} iniciais={(nome[0]||"?").toUpperCase()} enviando={enviandoFoto} onEscolher={escolherFoto}/>
           </div>
           <div style={{marginTop:6}}>
-            <label style={{fontSize:13,fontWeight:600,color:T.ink2}}>Nome</label>
+            <label style={{fontSize:13,fontWeight:600,color:T.ink2}}>{t("t4_nome")}</label>
             <input value={nome} onChange={(e)=>setNome(e.target.value)} placeholder="Ex.: João"
               style={{width:"100%",marginTop:8,padding:"14px 16px",fontSize:16,borderRadius:13,border:`1.5px solid ${T.line}`,background:T.card,fontFamily:T.sans,outline:"none",color:T.ink}}
               onFocus={(e)=>e.target.style.borderColor=T.brass} onBlur={(e)=>e.target.style.borderColor=T.line}/>
           </div>
           <div style={{marginTop:14}}>
-            <label style={{fontSize:13,fontWeight:600,color:T.ink2}}>Sobrenome</label>
+            <label style={{fontSize:13,fontWeight:600,color:T.ink2}}>{t("t4_sobrenome")}</label>
             <input value={sobrenome} onChange={(e)=>setSobrenome(e.target.value)} placeholder="Ex.: Silva"
               style={{width:"100%",marginTop:8,padding:"14px 16px",fontSize:16,borderRadius:13,border:`1.5px solid ${T.line}`,background:T.card,fontFamily:T.sans,outline:"none",color:T.ink}}
               onFocus={(e)=>e.target.style.borderColor=T.brass} onBlur={(e)=>e.target.style.borderColor=T.line}/>
           </div>
           <div style={{marginTop:14}}>
-            <label style={{fontSize:13,fontWeight:600,color:T.ink2}}>Data de nascimento</label>
+            <label style={{fontSize:13,fontWeight:600,color:T.ink2}}>{t("t4_nascimento")}</label>
             <input value={nascimento} onChange={(e)=>setNascimento(e.target.value)} type="date" max={hojeISO()} min="1900-01-01"
               style={{width:"100%",marginTop:8,padding:"14px 16px",fontSize:16,borderRadius:13,border:`1.5px solid ${T.line}`,background:T.card,fontFamily:T.sans,outline:"none",color:T.ink,colorScheme:T.name==="dark"?"dark":"light"}}
               onFocus={(e)=>e.target.style.borderColor=T.brass} onBlur={(e)=>e.target.style.borderColor=T.line}/>
           </div>
           <div style={{marginTop:14}}>
-            <label style={{fontSize:13,fontWeight:600,color:T.ink2}}>E-mail</label>
+            <label style={{fontSize:13,fontWeight:600,color:T.ink2}}>{t("t4_email")}</label>
             <input value={email} onChange={(e)=>setEmail(e.target.value)} type="email" inputMode="email" autoComplete="email" placeholder="seu@email.com"
               style={{width:"100%",marginTop:8,padding:"14px 16px",fontSize:16,borderRadius:13,border:`1.5px solid ${T.line}`,background:T.card,fontFamily:T.sans,outline:"none",color:T.ink}}
               onFocus={(e)=>e.target.style.borderColor=T.brass} onBlur={(e)=>e.target.style.borderColor=T.line}/>
@@ -1427,11 +1794,11 @@ function Portal() {
             <label style={{fontSize:13,fontWeight:600,color:T.ink2}}>WhatsApp</label>
             <input value={telExibe(ddi, tel)} readOnly
               style={{width:"100%",marginTop:8,padding:"14px 16px",fontSize:16,borderRadius:13,border:`1.5px solid ${T.line}`,background:T.bg1,fontFamily:T.sans,outline:"none",color:T.muted,cursor:"not-allowed"}}/>
-            <div style={{fontSize:11,color:T.muted,marginTop:6}}>Para mudar o WhatsApp, use “Sair / trocar de número” na tela anterior.</div>
+            <div style={{fontSize:11,color:T.muted,marginTop:6}}>{t("ed_wpp_aviso")}</div>
           </div>
           {erro && <div style={{color:T.danger,fontSize:13,marginTop:12}}>{erro}</div>}
         </div>
-        <Bottom comBarra><Primary onClick={salvarPerfil} disabled={!podeSalvar}>{salvandoPerfil?"Salvando…":"Salvar alterações"}</Primary></Bottom>
+        <Bottom comBarra><Primary onClick={salvarPerfil} disabled={!podeSalvar}>{salvandoPerfil?t("ed_salvando"):t("ed_salvar")}</Primary></Bottom>
         <div style={{height:80}}/>
         <BottomNav ativo={PERFIL} onNav={irPara} />
       </Shell>
@@ -1441,12 +1808,12 @@ function Portal() {
   // PASSO 1 — Serviço
   if (step===1) return (
     <Shell step={0} total={5} onToggleTema={onToggleTema}>
-      <Header titulo="Escolha o serviço" sub={clienteExistente?`Olá de novo, ${primeiroNome(clienteExistente.nome)}!`:"O que você quer fazer hoje?"} onBack={()=> clienteExistente ? setStep(HOME) : setStep(0)}/>
+      <Header titulo={t("t1_titulo")} sub={clienteExistente?`${t("t1_ola_volta")} ${primeiroNome(clienteExistente.nome)}!`:t("t1_sub")} onBack={()=> clienteExistente ? setStep(HOME) : setStep(0)}/>
       {dependentes.length > 0 && (
         <div style={{padding:"0 22px 4px"}}>
-          <div style={{fontSize:13,fontWeight:600,color:T.ink2,marginBottom:8}}>Para quem é o atendimento?</div>
+          <div style={{fontSize:13,fontWeight:600,color:T.ink2,marginBottom:8}}>{t("t1_para_quem")}</div>
           <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-            {[{nome:"Para mim",idx:-1}, ...dependentes.map((d,i)=>({nome:primeiroNome(d.nome)||`Dependente ${i+1}`,idx:i}))].map(opt=>{
+            {[{nome:t("t1_para_mim"),idx:-1}, ...dependentes.map((d,i)=>({nome:primeiroNome(d.nome)||`${t("dep_label")} ${i+1}`,idx:i}))].map(opt=>{
               const sel = paraQuem===opt.idx;
               return (
                 <button key={opt.idx} onClick={()=>setParaQuem(opt.idx)} className="aq-btn" style={{
@@ -1475,7 +1842,7 @@ function Portal() {
           );
         })}
       </div>
-      <Bottom comBarra><Primary onClick={()=>setStep(2)} disabled={!servSel}>{servSel?`Continuar · ${money(servSel.preco)}`:"Selecione um serviço"}</Primary></Bottom>
+      <Bottom comBarra><Primary onClick={()=>setStep(2)} disabled={!servSel}>{servSel?`${t("continuar")} · ${money(servSel.preco)}`:t("t1_selecione")}</Primary></Bottom>
       <div style={{height:80}}/>
       <BottomNav ativo={1} onNav={irPara} />
     </Shell>
@@ -1484,7 +1851,7 @@ function Portal() {
   // PASSO 2 — Barbeiro
   if (step===2) return (
     <Shell step={1} total={5} onToggleTema={onToggleTema}>
-      <Header titulo="Escolha o barbeiro" sub="Quem você quer que faça seu atendimento?" onBack={()=>setStep(1)}/>
+      <Header titulo={t("t2_titulo")} sub={t("t2_sub")} onBack={()=>setStep(1)}/>
       <div style={{padding:"8px 22px 0",display:"flex",flexDirection:"column",gap:10}}>
         {barbeiros.map(b=>{
           const sel = barbSel && barbSel.id===b.id;
@@ -1503,7 +1870,7 @@ function Portal() {
           );
         })}
       </div>
-      <Bottom comBarra><Primary onClick={()=>setStep(3)} disabled={!barbSel}>Continuar</Primary></Bottom>
+      <Bottom comBarra><Primary onClick={()=>setStep(3)} disabled={!barbSel}>{t("continuar")}</Primary></Bottom>
       <div style={{height:80}}/>
       <BottomNav ativo={1} onNav={irPara} />
     </Shell>
@@ -1512,7 +1879,7 @@ function Portal() {
   // PASSO 3 — Data e horário (também usado no reagendamento)
   if (step===3) return (
     <Shell step={2} total={5} onToggleTema={onToggleTema}>
-      <Header titulo={reagendandoId?"Novo horário":"Data e horário"} sub={reagendandoId?`Remarcando: ${servSel?.nome}`:`${servSel?.nome} · ${barbSel?.nome}`} onBack={()=> reagendandoId ? setStep(HOME) : setStep(2)}/>
+      <Header titulo={reagendandoId?t("t3_novo_h"):t("t3_data_hora")} sub={reagendandoId?t("t3_remarc_sub",{x:servSel?.nome}):`${servSel?.nome} · ${barbSel?.nome}`} onBack={()=> reagendandoId ? setStep(HOME) : setStep(2)}/>
       <div style={{padding:"8px 0 0"}}>
         <div style={{display:"flex",gap:8,overflowX:"auto",padding:"0 22px 4px",scrollbarWidth:"none"}}>
           {proximosDias(14).map((d,i)=>{
@@ -1534,9 +1901,9 @@ function Portal() {
       </div>
       <div style={{padding:"20px 22px 0"}}>
         {!dataSel ? (
-          <div style={{textAlign:"center",color:T.muted,fontSize:13,padding:"30px 0"}}>Escolha um dia acima para ver os horários.</div>
+          <div style={{textAlign:"center",color:T.muted,fontSize:13,padding:"30px 0"}}>{t("t3_escolha_dia")}</div>
         ) : loadingSlots ? (
-          <div style={{textAlign:"center",color:T.muted,fontSize:13,padding:"30px 0"}}>Buscando horários disponíveis…</div>
+          <div style={{textAlign:"center",color:T.muted,fontSize:13,padding:"30px 0"}}>{t("t3_buscando")}</div>
         ) : slots.length===0 ? (
           <div style={{textAlign:"center",color:T.muted,fontSize:13,padding:"30px 0"}}>Sem horários livres neste dia. Tente outra data.</div>
         ) : (
@@ -1557,8 +1924,8 @@ function Portal() {
       </div>
       <Bottom comBarra={!reagendandoId}>
         {reagendandoId
-          ? <Primary onClick={confirmarReagendamento} disabled={!dataSel||!horaSel||enviando}>{enviando?"Remarcando…":"Confirmar novo horário"}</Primary>
-          : <Primary onClick={()=>setStep(4)} disabled={!dataSel||!horaSel}>Continuar</Primary>}
+          ? <Primary onClick={confirmarReagendamento} disabled={!dataSel||!horaSel||enviando}>{enviando?t("t3_remarcando"):t("t3_novo_horario")}</Primary>
+          : <Primary onClick={()=>setStep(4)} disabled={!dataSel||!horaSel}>{t("continuar")}</Primary>}
       </Bottom>
       {!reagendandoId && (<>
         <div style={{height:80}}/>
@@ -1570,14 +1937,14 @@ function Portal() {
   // PASSO 4 — Dados + confirmação
   if (step===4) return (
     <Shell step={3} total={5} onToggleTema={onToggleTema}>
-      <Header titulo="Confirme seu agendamento" onBack={()=>setStep(3)}/>
+      <Header titulo={t("t4_titulo")} onBack={()=>setStep(3)}/>
       <div style={{padding:"4px 22px 0"}}>
         <div style={{background:T.card,border:`1px solid ${T.line}`,borderRadius:16,padding:18}}>
-          {(paraQuem>=0 && dependentes[paraQuem]) && <Linha label="Para" valor={dependentes[paraQuem].nome}/>}
-          <Linha label="Serviço" valor={servSel?.nome}/>
-          <Linha label="Barbeiro" valor={barbSel?.nome}/>
-          <Linha label="Data" valor={dataSel && `${DIAS[dataSel.getDay()]}, ${dataSel.getDate()} de ${MESES_L[dataSel.getMonth()]}`}/>
-          <Linha label="Horário" valor={horaSel}/>
+          {(paraQuem>=0 && dependentes[paraQuem]) && <Linha label={t("lbl_para")} valor={dependentes[paraQuem].nome}/>}
+          <Linha label={t("lbl_servico")} valor={servSel?.nome}/>
+          <Linha label={t("lbl_barbeiro")} valor={barbSel?.nome}/>
+          <Linha label={t("lbl_data")} valor={dataSel && `${DIAS[dataSel.getDay()]}, ${dataSel.getDate()} de ${MESES_L[dataSel.getMonth()]}`}/>
+          <Linha label={t("lbl_horario")} valor={horaSel}/>
           <Linha label="Duração" valor={`${servSel?.duracao} min`}/>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:12,paddingTop:12,borderTop:`1px dashed ${T.line}`}}>
             <span style={{fontWeight:700,fontSize:15,color:T.ink}}>Total</span>
@@ -1586,22 +1953,22 @@ function Portal() {
         </div>
         <div style={{marginTop:6,marginBottom:4,display:"flex",flexDirection:"column",alignItems:"center"}}>
           <FotoPicker fotoUrl={fotoUrl} iniciais={(nome[0]||"?").toUpperCase()} enviando={enviandoFoto} onEscolher={escolherFoto}/>
-          <div style={{fontSize:11,color:T.muted,marginTop:4,textAlign:"center"}}>Foto de perfil (obrigatória) — ajuda no seu reconhecimento.</div>
+          <div style={{fontSize:11,color:T.muted,marginTop:4,textAlign:"center"}}>{t("t4_foto_aviso")}</div>
         </div>
         <div style={{marginTop:14}}>
-          <label style={{fontSize:13,fontWeight:600,color:T.ink2}}>Nome</label>
+          <label style={{fontSize:13,fontWeight:600,color:T.ink2}}>{t("t4_nome")}</label>
           <input value={nome} onChange={(e)=>setNome(e.target.value)} placeholder="Ex.: João" autoFocus={!nome}
             style={{width:"100%",marginTop:8,padding:"14px 16px",fontSize:16,borderRadius:13,border:`1.5px solid ${T.line}`,background:T.card,fontFamily:T.sans,outline:"none",color:T.ink}}
             onFocus={(e)=>e.target.style.borderColor=T.brass} onBlur={(e)=>e.target.style.borderColor=T.line}/>
         </div>
         <div style={{marginTop:14}}>
-          <label style={{fontSize:13,fontWeight:600,color:T.ink2}}>Sobrenome</label>
+          <label style={{fontSize:13,fontWeight:600,color:T.ink2}}>{t("t4_sobrenome")}</label>
           <input value={sobrenome} onChange={(e)=>setSobrenome(e.target.value)} placeholder="Ex.: Silva"
             style={{width:"100%",marginTop:8,padding:"14px 16px",fontSize:16,borderRadius:13,border:`1.5px solid ${T.line}`,background:T.card,fontFamily:T.sans,outline:"none",color:T.ink}}
             onFocus={(e)=>e.target.style.borderColor=T.brass} onBlur={(e)=>e.target.style.borderColor=T.line}/>
         </div>
         <div style={{marginTop:14}}>
-          <label style={{fontSize:13,fontWeight:600,color:T.ink2}}>Data de nascimento</label>
+          <label style={{fontSize:13,fontWeight:600,color:T.ink2}}>{t("t4_nascimento")}</label>
           <input
             value={nascimento}
             onChange={(e)=>setNascimento(e.target.value)}
@@ -1610,24 +1977,24 @@ function Portal() {
             min="1900-01-01"
             style={{width:"100%",marginTop:8,padding:"14px 16px",fontSize:16,borderRadius:13,border:`1.5px solid ${T.line}`,background:T.card,fontFamily:T.sans,outline:"none",color:T.ink,colorScheme:T.name==="dark"?"dark":"light"}}
             onFocus={(e)=>e.target.style.borderColor=T.brass} onBlur={(e)=>e.target.style.borderColor=T.line}/>
-          <div style={{fontSize:11,color:T.muted,marginTop:6}}>Usamos para mensagem de aniversário e cuidados específicos.</div>
+          <div style={{fontSize:11,color:T.muted,marginTop:6}}>{t("t4_nasc_aviso")}</div>
         </div>
         <div style={{marginTop:14}}>
-          <label style={{fontSize:13,fontWeight:600,color:T.ink2}}>E-mail</label>
+          <label style={{fontSize:13,fontWeight:600,color:T.ink2}}>{t("t4_email")}</label>
           <input value={email} onChange={(e)=>setEmail(e.target.value)} placeholder="seu@email.com" type="email" inputMode="email" autoComplete="email"
             style={{width:"100%",marginTop:8,padding:"14px 16px",fontSize:16,borderRadius:13,border:`1.5px solid ${T.line}`,background:T.card,fontFamily:T.sans,outline:"none",color:T.ink}}
             onFocus={(e)=>e.target.style.borderColor=T.brass} onBlur={(e)=>e.target.style.borderColor=T.line}/>
         </div>
         <DependentesEditor deps={dependentes} setDeps={setDependentes} />
         <div style={{marginTop:14}}>
-          <label style={{fontSize:13,fontWeight:600,color:T.ink2}}>Observação <span style={{color:T.muted,fontWeight:400}}>(opcional)</span></label>
-          <input value={obs} onChange={(e)=>setObs(e.target.value)} placeholder="Algum pedido especial?"
+          <label style={{fontSize:13,fontWeight:600,color:T.ink2}}>{t("t4_obs")} <span style={{color:T.muted,fontWeight:400}}>{t("t4_opcional")}</span></label>
+          <input value={obs} onChange={(e)=>setObs(e.target.value)} placeholder={t("t4_obs_ph")}
             style={{width:"100%",marginTop:8,padding:"14px 16px",fontSize:15,borderRadius:13,border:`1.5px solid ${T.line}`,background:T.card,fontFamily:T.sans,outline:"none",color:T.ink}}
             onFocus={(e)=>e.target.style.borderColor=T.brass} onBlur={(e)=>e.target.style.borderColor=T.line}/>
         </div>
         {erro && <div style={{color:T.danger,fontSize:13,marginTop:12}}>{erro}</div>}
       </div>
-      <Bottom comBarra={!reagendandoId}><Primary onClick={confirmar} disabled={enviando||enviandoFoto||!nome.trim()||!sobrenome.trim()||!nascValido(nascimento)||!emailValido(email)||!fotoUrl}>{enviando?"Confirmando…":"Confirmar agendamento"}</Primary></Bottom>
+      <Bottom comBarra={!reagendandoId}><Primary onClick={confirmar} disabled={enviando||enviandoFoto||!nome.trim()||!sobrenome.trim()||!nascValido(nascimento)||!emailValido(email)||!fotoUrl}>{enviando?t("t4_confirmando"):t("t4_confirmar")}</Primary></Bottom>
       {!reagendandoId && (<>
         <div style={{height:80}}/>
         <BottomNav ativo={1} onNav={irPara} />
@@ -1638,7 +2005,7 @@ function Portal() {
   // PASSO 5 — Sinal (Pix)
   if (step===5) return (
     <Shell onToggleTema={onToggleTema}>
-      <Header titulo="Garanta seu horário" sub="Para confirmar, falta um sinal via Pix."/>
+      <Header titulo={t("t5_titulo")} sub={t("t5_sub")}/>
       <div style={{padding:"4px 22px 0"}}>
         <div style={{background:T.card,border:`1px solid ${T.line}`,borderRadius:16,padding:20,textAlign:"center"}}>
           <div style={{fontSize:13,color:T.muted}}>Valor do sinal ({resultado?.sinalPct||30}%)</div>
@@ -1648,9 +2015,9 @@ function Portal() {
           )}
           {resultado?.pix?.copiaECola && (
             <div style={{marginTop:14}}>
-              <div style={{fontSize:12,color:T.muted,marginBottom:6}}>Pix copia e cola:</div>
+              <div style={{fontSize:12,color:T.muted,marginBottom:6}}>{t("pix_label")}</div>
               <div style={{background:T.bg1,border:`1px solid ${T.line}`,borderRadius:10,padding:"10px 12px",fontSize:11,wordBreak:"break-all",fontFamily:"monospace",color:T.ink2}}>{resultado.pix.copiaECola}</div>
-              <button className="aq-btn" onClick={()=>{navigator.clipboard?.writeText(resultado.pix.copiaECola);}} style={{marginTop:10,width:"100%",padding:"12px",borderRadius:11,border:`1.5px solid ${T.brass}`,background:T.brassTint,color:T.brass,fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:T.sans}}>Copiar código Pix</button>
+              <button className="aq-btn" onClick={()=>{navigator.clipboard?.writeText(resultado.pix.copiaECola);}} style={{marginTop:10,width:"100%",padding:"12px",borderRadius:11,border:`1.5px solid ${T.brass}`,background:T.brassTint,color:T.brass,fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:T.sans}}>{t("pix_copiar")}</button>
             </div>
           )}
           <p style={{fontSize:12,color:T.muted,marginTop:16,lineHeight:1.5}}>Assim que o pagamento for confirmado, você recebe a confirmação no WhatsApp. O valor é descontado no dia do atendimento.</p>
@@ -1667,24 +2034,24 @@ function Portal() {
         <div style={{width:72,height:72,margin:"0 auto 20px",borderRadius:"50%",background:T.wa,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 14px 30px -10px rgba(31,168,85,.6)"}}>
           <svg width="34" height="34" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/></svg>
         </div>
-        <h1 style={{fontFamily:T.serif,fontWeight:700,fontSize:28,margin:"0 0 8px",color:T.ink}}>Agendamento confirmado!</h1>
-        <p style={{color:T.muted,fontSize:15,margin:"0 0 24px",lineHeight:1.5}}>{primeiroNome(nome)}, {(paraQuem>=0 && dependentes[paraQuem]) ? `o horário de ${primeiroNome(dependentes[paraQuem].nome)} está garantido.` : "seu horário está garantido."}</p>
+        <h1 style={{fontFamily:T.serif,fontWeight:700,fontSize:28,margin:"0 0 8px",color:T.ink}}>{t("ok_titulo")}</h1>
+        <p style={{color:T.muted,fontSize:15,margin:"0 0 24px",lineHeight:1.5}}>{primeiroNome(nome)}, {(paraQuem>=0 && dependentes[paraQuem]) ? t("ok_dep_garantido",{x:primeiroNome(dependentes[paraQuem].nome)}) : t("ok_garantido")}</p>
       </div>
       <div style={{padding:"0 22px"}}>
         <div style={{background:T.card,border:`1px solid ${T.line}`,borderRadius:16,padding:18,textAlign:"left"}}>
-          {(paraQuem>=0 && dependentes[paraQuem]) && <Linha label="Para" valor={dependentes[paraQuem].nome}/>}
-          <Linha label="Serviço" valor={servSel?.nome}/>
-          <Linha label="Barbeiro" valor={barbSel?.nome}/>
-          <Linha label="Data" valor={dataSel && `${DIAS[dataSel.getDay()]}, ${dataSel.getDate()}/${String(dataSel.getMonth()+1).padStart(2,"0")}`}/>
-          <Linha label="Horário" valor={horaSel}/>
-          <Linha label="Local" valor={BARBEARIA.endereco}/>
+          {(paraQuem>=0 && dependentes[paraQuem]) && <Linha label={t("lbl_para")} valor={dependentes[paraQuem].nome}/>}
+          <Linha label={t("lbl_servico")} valor={servSel?.nome}/>
+          <Linha label={t("lbl_barbeiro")} valor={barbSel?.nome}/>
+          <Linha label={t("lbl_data")} valor={dataSel && `${DIAS[dataSel.getDay()]}, ${dataSel.getDate()}/${String(dataSel.getMonth()+1).padStart(2,"0")}`}/>
+          <Linha label={t("lbl_horario")} valor={horaSel}/>
+          <Linha label={t("lbl_local")} valor={BARBEARIA.endereco}/>
         </div>
         {(resultado?.demo||demo) && <p style={{textAlign:"center",fontSize:11,color:T.muted,marginTop:14}}>Modo demonstração — conecte o backend (VITE_GAS_URL) para gravar de verdade.</p>}
-        {!(resultado?.demo||demo) && <p style={{textAlign:"center",fontSize:13,color:T.muted,marginTop:16,lineHeight:1.5}}>Você receberá lembretes no WhatsApp: 24h e 1h antes.</p>}
+        {!(resultado?.demo||demo) && <p style={{textAlign:"center",fontSize:13,color:T.muted,marginTop:16,lineHeight:1.5}}>{t("ok_lembrete")}</p>}
       </div>
       <Bottom>
-        <Primary onClick={novoAgendamento}>Agendar outro horário</Primary>
-        <button onClick={()=>setStep(HOME)} className="aq-btn" style={{width:"100%",marginTop:10,padding:"14px",borderRadius:13,border:`1.5px solid ${T.line}`,background:"transparent",color:T.ink2,fontWeight:600,fontSize:15,cursor:"pointer",fontFamily:T.sans}}>Ir para o início</button>
+        <Primary onClick={novoAgendamento}>{t("ok_novo")}</Primary>
+        <button onClick={()=>setStep(HOME)} className="aq-btn" style={{width:"100%",marginTop:10,padding:"14px",borderRadius:13,border:`1.5px solid ${T.line}`,background:"transparent",color:T.ink2,fontWeight:600,fontSize:15,cursor:"pointer",fontFamily:T.sans}}>{t("ok_inicio")}</button>
       </Bottom>
     </Shell>
   );
@@ -1698,14 +2065,19 @@ function useToggleTema() {
 // ════════════════════════════════════════════════════════════════════════
 export default function BookingPortal() {
   const [tema, setTema] = useState(lerTema);
+  const [idioma, setIdioma] = useState(lerIdioma);
   useEffect(() => {
     const h = () => setTema(t => { const novo = t === "dark" ? "light" : "dark"; salvarTema(novo); return novo; });
+    const hi = (e) => setIdioma(() => { const novo = e.detail; salvarIdioma(novo); return novo; });
     window.addEventListener("aq-toggle-tema", h);
-    return () => window.removeEventListener("aq-toggle-tema", h);
+    window.addEventListener("aq-set-idioma", hi);
+    return () => { window.removeEventListener("aq-toggle-tema", h); window.removeEventListener("aq-set-idioma", hi); };
   }, []);
   return (
     <ThemeCtx.Provider value={THEMES[tema]}>
-      <Portal />
+      <IdiomaCtx.Provider value={idioma}>
+        <Portal />
+      </IdiomaCtx.Provider>
     </ThemeCtx.Provider>
   );
 }
