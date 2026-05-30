@@ -3,7 +3,8 @@
     "Confraternização Universal"
   ],
   "01-04": [
-    "Dia da Abreugrafia"
+    "Dia da Abreugrafia",
+    "Dia Mundial do Braille"
   ],
   "01-06": [
     "Dia de Reis"
@@ -28,11 +29,15 @@
   ],
   "01-24": [
     "Dia Nacional do Aposentado",
-    "Dia Nacional da Bossa Nova"
+    "Dia Nacional da Bossa Nova",
+    "Dia Internacional da Educação"
   ],
   "01-25": [
     "Dia Nacional de Segurança da Vida nas Áreas de Barragens",
     "Aniversário de São Paulo"
+  ],
+  "01-27": [
+    "Dia Internacional em Memória das Vítimas do Holocausto"
   ],
   "01-28": [
     "Dia Nacional de Combate ao Trabalho Escravo",
@@ -50,11 +55,20 @@
     "Dia de Iemanjá",
     "Dia de Nossa Senhora dos Navegantes"
   ],
+  "02-04": [
+    "Dia Mundial de Combate ao Câncer"
+  ],
   "02-05": [
     "Dia Nacional da Mamografia"
   ],
   "02-09": [
     "Dia Nacional do Cerco da Lapa"
+  ],
+  "02-11": [
+    "Dia Internacional das Mulheres e Meninas na Ciência"
+  ],
+  "02-13": [
+    "Dia Mundial do Rádio"
   ],
   "02-14": [
     "Dia Nacional do Brega",
@@ -64,12 +78,18 @@
     "Dia Nacional da Axé-Music",
     "Dia Nacional da Criança"
   ],
+  "02-20": [
+    "Dia Mundial da Justiça Social"
+  ],
   "02-21": [
     "Dia Internacional da Língua Materna"
   ],
   "02-23": [
     "Dia Nacional do Rotary",
     "Dia da Conquista do Voto"
+  ],
+  "03-03": [
+    "Dia Mundial da Vida Selvagem"
   ],
   "03-08": [
     "Dia Internacional da Mulher"
@@ -98,12 +118,14 @@
     "Dia de São José"
   ],
   "03-20": [
-    "Dia Nacional da Aquicultura"
+    "Dia Nacional da Aquicultura",
+    "Dia Internacional da Felicidade"
   ],
   "03-21": [
     "Dia Nacional das Tradições das Raízes de Matrizes Africanas e Nações do Candomblé",
     "Dia Internacional contra a Discriminação Racial",
-    "Dia Mundial da Poesia"
+    "Dia Mundial da Poesia",
+    "Dia Internacional pela Eliminação da Discriminação Racial"
   ],
   "03-22": [
     "Dia Nacional da Água",
@@ -131,7 +153,8 @@
   ],
   "04-02": [
     "Dia Mundial de Conscientização do Autismo",
-    "Dia Internacional do Livro Infantil"
+    "Dia Internacional do Livro Infantil",
+    "Dia Mundial de Conscientização sobre o Autismo"
   ],
   "04-05": [
     "Dia Nacional da Polícia Civil"
@@ -192,7 +215,8 @@
   ],
   "04-23": [
     "Dia Nacional de Conscientização da Fibrodisplasia Ossificante Progressiva (FOP)",
-    "Dia Mundial do Livro"
+    "Dia Mundial do Livro",
+    "Dia Mundial do Livro e do Direito Autoral"
   ],
   "04-27": [
     "Dia da Empregada Doméstica"
@@ -200,10 +224,12 @@
   "04-28": [
     "Dia Nacional da Conscientização sobre a Doença de Fabry",
     "Dia da Educação",
-    "Dia da Sogra"
+    "Dia da Sogra",
+    "Dia Mundial da Segurança e Saúde no Trabalho"
   ],
   "04-30": [
-    "Dia Nacional da Mulher"
+    "Dia Nacional da Mulher",
+    "Dia Internacional do Jazz"
   ],
   "05-01": [
     "Dia do Trabalho",
@@ -220,7 +246,8 @@
     "Dia Internacional do Bombeiro"
   ],
   "05-05": [
-    "Dia Nacional da Pessoa com Visão Monocular"
+    "Dia Nacional da Pessoa com Visão Monocular",
+    "Dia Mundial da Língua Portuguesa"
   ],
   "05-06": [
     "Dia Nacional da Matemática",
@@ -258,7 +285,8 @@
   ],
   "05-17": [
     "Dia Nacional de Combate ao Abuso e à Exploração Sexual",
-    "Dia Internacional contra a Homofobia, a Transfobia e a Bifobia"
+    "Dia Internacional contra a Homofobia, a Transfobia e a Bifobia",
+    "Dia Mundial das Telecomunicações e da Sociedade da Informação"
   ],
   "05-18": [
     "Dia Nacional do Museu",
@@ -274,9 +302,13 @@
     "Dia Nacional do Cigano",
     "Dia Nacional do Calcário Agrícola"
   ],
+  "05-21": [
+    "Dia Mundial da Diversidade Cultural"
+  ],
   "05-22": [
     "Dia do Apicultor",
-    "Dia Internacional da Biodiversidade"
+    "Dia Internacional da Biodiversidade",
+    "Dia Internacional da Diversidade Biológica"
   ],
   "05-24": [
     "Dia Nacional do Milho",
@@ -311,7 +343,11 @@
     "Maio Amarelo — Trânsito Seguro"
   ],
   "06-01": [
-    "Dia da Imprensa"
+    "Dia da Imprensa",
+    "Dia Mundial dos Pais"
+  ],
+  "06-03": [
+    "Dia Mundial da Bicicleta"
   ],
   "06-05": [
     "Dia Nacional da Reciclagem",
@@ -334,10 +370,14 @@
     "Dia da Língua Portuguesa (Camões)"
   ],
   "06-12": [
-    "Dia dos Namorados"
+    "Dia dos Namorados",
+    "Dia Mundial contra o Trabalho Infantil"
   ],
   "06-13": [
     "Dia de Santo Antônio"
+  ],
+  "06-14": [
+    "Dia Mundial do Doador de Sangue"
   ],
   "06-15": [
     "Dia Nacional da Imigração Japonesa"
@@ -347,11 +387,13 @@
   ],
   "06-20": [
     "Dia Nacional do Vigilante",
-    "Dia Nacional de Luta contra a Esclerose Lateral Amiotrófica (ELA)"
+    "Dia Nacional de Luta contra a Esclerose Lateral Amiotrófica (ELA)",
+    "Dia Mundial dos Refugiados"
   ],
   "06-21": [
     "Dia Nacional do Artista Vidreiro",
-    "Início do Inverno"
+    "Início do Inverno",
+    "Dia Internacional do Yoga"
   ],
   "06-23": [
     "Dia do Policial Legislativo",
@@ -364,7 +406,8 @@
     "Festa Junina"
   ],
   "06-26": [
-    "Dia Internacional de Combate às Drogas"
+    "Dia Internacional de Combate às Drogas",
+    "Dia Internacional contra o Abuso e o Tráfico Ilícito de Drogas"
   ],
   "06-27": [
     "Dia Nacional da Aviação de Segurança Pública do Brasil"
@@ -395,6 +438,9 @@
   "07-10": [
     "Dia da Pizza"
   ],
+  "07-11": [
+    "Dia Mundial da População"
+  ],
   "07-12": [
     "Dia Nacional do Funk",
     "Dia do Engenheiro de Saneamento"
@@ -412,13 +458,17 @@
   "07-16": [
     "Dia do Comerciante"
   ],
+  "07-18": [
+    "Dia Internacional Nelson Mandela"
+  ],
   "07-19": [
     "Dia da Caridade"
   ],
   "07-20": [
     "Dia do Amigo",
     "Dia Internacional da Amizade",
-    "Dia do Futebol"
+    "Dia do Futebol",
+    "Dia Internacional da Lua"
   ],
   "07-21": [
     "Dia Nacional do Garimpeiro"
@@ -441,6 +491,9 @@
   "07-28": [
     "Dia do Agricultor"
   ],
+  "07-30": [
+    "Dia Internacional da Amizade"
+  ],
   "08-01": [
     "Dia Nacional do Maracatu",
     "Dia Nacional dos Rosacruzes",
@@ -457,7 +510,8 @@
     "Dia Nacional da Pessoa com Atrofia Muscular Espinhal (AME)"
   ],
   "08-09": [
-    "Dia Nacional da Equoterapia"
+    "Dia Nacional da Equoterapia",
+    "Dia Internacional dos Povos Indígenas"
   ],
   "08-10": [
     "Dia Nacional da Eubiose",
@@ -535,7 +589,8 @@
     "Dia da Amazônia"
   ],
   "09-05": [
-    "Dia Nacional de Conscientização e Divulgação da Fibrose Cística"
+    "Dia Nacional de Conscientização e Divulgação da Fibrose Cística",
+    "Dia Internacional da Caridade"
   ],
   "09-07": [
     "Independência do Brasil",
@@ -557,7 +612,8 @@
     "Dia da Cachaça"
   ],
   "09-15": [
-    "Dia do Cliente"
+    "Dia do Cliente",
+    "Dia Internacional da Democracia"
   ],
   "09-16": [
     "Dia Nacional da Identidade Civil",
@@ -581,7 +637,8 @@
   "09-21": [
     "Dia Nacional do Imigrante Grego",
     "Dia da Árvore",
-    "Dia do Fazendeiro"
+    "Dia do Fazendeiro",
+    "Dia Internacional da Paz"
   ],
   "09-22": [
     "Dia Nacional dos Profissionais de Nível Técnico",
@@ -592,7 +649,8 @@
   "09-23": [
     "Dia Nacional da Conscientização sobre a Dermatite Atópica",
     "Dia Nacional da Ikebana",
-    "Início da Primavera"
+    "Início da Primavera",
+    "Dia Internacional das Línguas de Sinais"
   ],
   "09-25": [
     "Dia Nacional do Rádio",
@@ -621,7 +679,8 @@
   ],
   "10-01": [
     "Dia Nacional do Idoso",
-    "Dia Nacional do Pacifismo"
+    "Dia Nacional do Pacifismo",
+    "Dia Internacional do Café"
   ],
   "10-02": [
     "Dia Internacional da Não-Violência"
@@ -641,7 +700,8 @@
   "10-05": [
     "Dia Nacional da Cidadania",
     "Dia Nacional do Rosário",
-    "Dia Mundial do Professor"
+    "Dia Mundial do Professor",
+    "Dia Mundial dos Professores"
   ],
   "10-07": [
     "Dia Nacional do Combate a Cartéis"
@@ -651,7 +711,8 @@
   ],
   "10-10": [
     "Dia Nacional dos Direitos Fundamentais da Pessoa com Transtornos Mentais",
-    "Dia Nacional do Condutor de Ambulância"
+    "Dia Nacional do Condutor de Ambulância",
+    "Dia Mundial da Saúde Mental"
   ],
   "10-11": [
     "Dia de Festa da Criança"
@@ -672,6 +733,9 @@
     "Dia Nacional da Alimentação",
     "Dia Nacional da Música",
     "Dia do Anestesiologista"
+  ],
+  "10-17": [
+    "Dia Internacional para a Erradicação da Pobreza"
   ],
   "10-18": [
     "Dia da Inovação",
@@ -746,7 +810,8 @@
   "11-10": [
     "Dia do Intensivista",
     "Dia Nacional do Inventor",
-    "Dia Nacional da Liberdade"
+    "Dia Nacional da Liberdade",
+    "Dia Mundial da Ciência pela Paz e pelo Desenvolvimento"
   ],
   "11-12": [
     "Dia Nacional da Pessoa com Surdocegueira"
@@ -773,11 +838,13 @@
   ],
   "11-20": [
     "Dia da Consciência Negra",
-    "Dia Nacional de Zumbi e da Consciência Negra"
+    "Dia Nacional de Zumbi e da Consciência Negra",
+    "Dia Mundial da Criança"
   ],
   "11-21": [
     "Dia da Música",
-    "Dia Mundial da Televisão"
+    "Dia Mundial da Televisão",
+    "Dia Mundial da Filosofia"
   ],
   "11-22": [
     "Dia da Comunidade Libanesa no Brasil",
@@ -804,7 +871,8 @@
     "Novembro Azul — Saúde do Homem"
   ],
   "12-01": [
-    "Dia Mundial de Combate à AIDS"
+    "Dia Mundial de Combate à AIDS",
+    "Dia Mundial de Luta contra a AIDS"
   ],
   "12-02": [
     "Dia Nacional da Astronomia",
@@ -812,7 +880,8 @@
   ],
   "12-03": [
     "Dia do Delegado de Polícia",
-    "Dia do Trabalhador nas Minas de Carvão"
+    "Dia do Trabalhador nas Minas de Carvão",
+    "Dia Internacional das Pessoas com Deficiência"
   ],
   "12-04": [
     "Dia Nacional do Perito Criminal",
@@ -845,7 +914,8 @@
     "Dia Internacional dos Direitos Humanos"
   ],
   "12-11": [
-    "Dia Nacional da Câmara Júnior"
+    "Dia Nacional da Câmara Júnior",
+    "Dia Internacional das Montanhas"
   ],
   "12-12": [
     "Dia do Cego",
@@ -871,7 +941,11 @@
     "Dia do Bioma Pampa"
   ],
   "12-18": [
-    "Dia Nacional do Museólogo"
+    "Dia Nacional do Museólogo",
+    "Dia Internacional do Migrante"
+  ],
+  "12-20": [
+    "Dia Internacional da Solidariedade Humana"
   ],
   "12-21": [
     "Dia do Atleta",
