@@ -15,6 +15,17 @@ import FRASES from "./data/quotes.json";
    - Sem backend → modo demonstração (dados mock, sem rede).
    ════════════════════════════════════════════════════════════════════════ */
 
+// ┌──────────────────────────────────────────────────────────────────────┐
+// │  LINKS DA BARBEARIA — troque AQUI quando precisar (ex.: mudar de       │
+// │  endereço muda o link do Google). No Grupo 3 isto vai pro painel admin │
+// │  e passa a ser editável com um clique, refletindo para os clientes.    │
+// └──────────────────────────────────────────────────────────────────────┘
+const LINKS = {
+  google:    "https://maps.app.goo.gl/ZPYyxRyc32MxKHCT7",
+  instagram: "https://www.instagram.com/aquino.inbeleza",
+  facebook:  "https://www.facebook.com/aquino.inbeleza/",
+};
+
 // ─── ENV / API ──────────────────────────────────────────────────────────
 const readEnv = (k, fb = "") => {
   try { if (typeof import.meta !== "undefined" && import.meta.env && import.meta.env[k] != null) return import.meta.env[k]; } catch (e) {}
@@ -230,6 +241,9 @@ const STRINGS = {
   t3_escolha_dia:{ pt:"Escolha um dia acima para ver os horários.", en:"Pick a day above to see available times.", es:"Elige un día arriba para ver los horarios.", fr:"Choisissez un jour ci-dessus pour voir les créneaux." },
   t3_buscando:  { pt:"Buscando horários disponíveis…", en:"Finding available times…", es:"Buscando horarios disponibles…", fr:"Recherche des créneaux disponibles…" },
   hm_agendar:   { pt:"Agendar horário", en:"Book appointment", es:"Reservar horario", fr:"Prendre rendez-vous" },
+  hm_agendar_denovo: { pt:"Agendar de novo", en:"Book again", es:"Reservar de nuevo", fr:"Réserver à nouveau" },
+  hm_faz_dias:  { pt:"Faz {x} dias desde seu último corte", en:"It's been {x} days since your last cut", es:"Hace {x} días desde tu último corte", fr:"Cela fait {x} jours depuis votre dernière coupe" },
+  rs_avaliar:   { pt:"Avaliar no Google", en:"Rate on Google", es:"Valorar en Google", fr:"Noter sur Google" },
   st_confirmado:{ pt:"Confirmado", en:"Confirmed", es:"Confirmado", fr:"Confirmé" },
   st_proximo:   { pt:"Próximo", en:"Upcoming", es:"Próximo", fr:"À venir" },
   st_realizado: { pt:"Realizado", en:"Completed", es:"Realizado", fr:"Effectué" },
@@ -487,6 +501,17 @@ const proximosDias = (n=14) => {
 };
 const isoDate = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 const hojeISO = () => isoDate(new Date());
+// "Hoje" no fuso de São Paulo: vira à meia-noite de Brasília, igual para todos
+// os usuários (independe do fuso do aparelho). Usado na "Inspiração do dia".
+const dataSaoPaulo = () => {
+  try {
+    const [y, m, d] = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit" })
+      .format(new Date()).split("-").map(Number);
+    return new Date(y, m - 1, d, 12, 0, 0);
+  } catch (e) { return new Date(); }
+};
+// Semente determinística do dia (YYYYMMDD em SP) → mesma "frase do dia" para todos.
+const seedDoDiaSP = () => { const d = dataSaoPaulo(); return d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate(); };
 // "2026-05-26" → "Ter, 26 mai"
 const labelData = (iso) => {
   if (!iso) return "";
@@ -874,7 +899,7 @@ const Linha = ({ label, valor }) => {
 const InspiracaoCard = ({ fraseIdx }) => {
   const T = useT();
   const idioma = useIdioma();
-  const hoje = new Date();
+  const hoje = dataSaoPaulo();
   const coms = comemoracoesDe(hoje);
   const chips = [signoDe(hoje), faseLuaDe(hoje), estacaoDe(hoje)];
   return (
@@ -991,7 +1016,9 @@ function Portal() {
   const [reagendandoId, setReagendandoId] = useState(null);
   const [aviso, setAviso] = useState(null);   // {tipo:"ok"|"erro", txt}
   const [verificando, setVerificando] = useState(false);
-  const [fraseIdx] = useState(() => Math.floor(Math.random() * FRASES.length));
+  // frase do dia: travada pela data (mesma para todos), vira à meia-noite de SP.
+  // O multiplicador primo "espalha" a escolha para variar autor a cada dia.
+  const fraseIdx = (seedDoDiaSP() * 7919) % FRASES.length;
   const demo = !ENV.hasBackend;
 
   const onToggleTema = useToggleTema();
@@ -1026,6 +1053,15 @@ function Portal() {
       .filter(a => a._d && a._d >= hj)
       .sort((a,b) => (a._d+a._h).localeCompare(b._d+b._h));
     return fut[0] || null;
+  })();
+
+  // última visita = agendamento passado mais recente → "cutucão" de retorno
+  const diasDesdeUltima = (() => {
+    const hj = hojeISO();
+    const passados = meusAgs.map(a => agData(a)).filter(d => d && d < hj).sort();
+    if (!passados.length) return null;
+    const ultima = passados[passados.length - 1];
+    return Math.floor((new Date(hj) - new Date(ultima)) / 86400000);
   })();
 
   // ── Passo 0: telefone ──
@@ -1302,9 +1338,12 @@ function Portal() {
           ) : (
             <div style={{background:T.card,border:`1px solid ${T.line}`,borderRadius:16,padding:"20px 16px",textAlign:"center"}}>
               <div style={{color:T.brass,marginBottom:8,display:"flex",justifyContent:"center"}}><Icon name="calendar" size={30} stroke={1.6}/></div>
+              {diasDesdeUltima != null && diasDesdeUltima >= 14 && (
+                <div style={{color:T.brass,fontSize:12.5,fontWeight:700,marginBottom:6}}>✂️ {t("hm_faz_dias",{x:diasDesdeUltima})}</div>
+              )}
               <div style={{color:T.ink,fontWeight:700,fontSize:15}}>{t("hm_nenhum")}</div>
               <div style={{color:T.muted,fontSize:13,margin:"4px 0 12px"}}>{t("hm_que_tal")}</div>
-              <button onClick={()=>{ setReagendandoId(null); setServSel(null); setStep(1); }} className="aq-btn" style={{background:`linear-gradient(150deg,${T.brass},${T.brassDeep})`,border:"none",borderRadius:11,padding:"12px 22px",cursor:"pointer",color:"#fff",fontWeight:700,fontSize:14,fontFamily:T.sans}}>{t("hm_agendar")}</button>
+              <button onClick={()=>{ setReagendandoId(null); setServSel(null); setStep(1); }} className="aq-btn" style={{background:`linear-gradient(150deg,${T.brass},${T.brassDeep})`,border:"none",borderRadius:11,padding:"12px 22px",cursor:"pointer",color:"#fff",fontWeight:700,fontSize:14,fontFamily:T.sans}}>{diasDesdeUltima != null ? t("hm_agendar_denovo") : t("hm_agendar")}</button>
             </div>
           )}
         </div>
@@ -1328,6 +1367,18 @@ function Portal() {
         {/* inspiração do dia */}
         <div style={{padding:"12px 22px 0"}}>
           <InspiracaoCard fraseIdx={fraseIdx} />
+        </div>
+
+        {/* redes sociais + avaliação no Google */}
+        <div style={{padding:"12px 22px 0"}}>
+          <div style={{background:T.card,border:`1px solid ${T.line}`,borderRadius:16,padding:"16px",textAlign:"center"}}>
+            <div style={{color:T.muted,fontSize:10.5,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:12}}>AQUINO Barbearia &amp; Estética</div>
+            <div style={{display:"flex",gap:9,justifyContent:"center",marginBottom:9}}>
+              <a href={LINKS.instagram} target="_blank" rel="noopener noreferrer" className="aq-btn" style={{flex:1,maxWidth:150,textDecoration:"none",background:T.name==="dark"?T.card2:T.bg1,border:`1px solid ${T.line}`,borderRadius:11,padding:"10px",color:T.ink,fontWeight:600,fontSize:12.5,fontFamily:T.sans}}>Instagram</a>
+              <a href={LINKS.facebook} target="_blank" rel="noopener noreferrer" className="aq-btn" style={{flex:1,maxWidth:150,textDecoration:"none",background:T.name==="dark"?T.card2:T.bg1,border:`1px solid ${T.line}`,borderRadius:11,padding:"10px",color:T.ink,fontWeight:600,fontSize:12.5,fontFamily:T.sans}}>Facebook</a>
+            </div>
+            <a href={LINKS.google} target="_blank" rel="noopener noreferrer" className="aq-btn" style={{display:"block",textDecoration:"none",background:T.brassTint,border:`1px solid ${T.brassLine}`,borderRadius:11,padding:"11px",color:T.brass,fontWeight:700,fontSize:13,fontFamily:T.sans}}>★ {t("rs_avaliar")}</a>
+          </div>
         </div>
 
         <div style={{height:88}}/>
