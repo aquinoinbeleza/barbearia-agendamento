@@ -4,6 +4,11 @@ import { useState, useEffect, useCallback, useRef, createContext, useContext } f
 // AQUINO Barbearia & Estética — Painel de Gestão
 // Sistema de agendamento, CRM, fidelidade e financeiro.
 //
+// Configuração: credenciais via variáveis de ambiente (.env.local).
+//   VITE_GAS_URL    → endpoint do backend (Google Apps Script)
+//   VITE_SITE_TOKEN → token de origem entre o site e o backend
+// Sem backend configurado, o painel roda em modo de demonstração.
+//
 // © AQUINO. Todos os direitos reservados.
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -277,7 +282,13 @@ const exportPDF = (titulo, headers, rows) => {
   } catch (e) { return false; }
 };
 
-const A = {
+// ─── PALETA · TEMA ESCURO / CLARO (v9.4) ──────────────────────────────────
+// As cores são lidas via o Proxy `A`, que devolve a paleta do tema ATIVO em
+// tempo de render. Ao trocar o tema, o app re-renderiza (AppInner/ThemeStyle
+// assinam o themeStore) e as ~780 referências A.xxx mudam de uma vez — sem
+// precisar editar componente nenhum. Os tons de destaque (azul/ciano/verde/…)
+// são IDÊNTICOS nos dois temas de propósito: só fundos, bordas e textos mudam.
+const PAL_DARK = {
   bg0:"#0A0D12", bg1:"#0E1118", bg2:"#131820", bg3:"#181F2A", bg4:"#1E2738",
   border:"#1C2335", borderHi:"#263047",
   textPri:"#E8EDF5", textSec:"#7A8BA5", textMuted:"#3D4F68",
@@ -286,6 +297,20 @@ const A = {
   green:"#4ADE80",
   amber:"#F59E0B", red:"#F87171", purple:"#A78BFA",
 };
+const PAL_LIGHT = {
+  bg0:"#EDF1F7", bg1:"#FFFFFF", bg2:"#F5F8FC", bg3:"#EAEFF6", bg4:"#DCE3ED",
+  border:"#E2E8F0", borderHi:"#C7D2E0",
+  textPri:"#0F1B2D", textSec:"#566377", textMuted:"#8A99AE",
+  blue:"#3B82F6", blueHi:"#60A5FA",
+  cyan:"#38BDF8",
+  green:"#4ADE80",
+  amber:"#F59E0B", red:"#F87171", purple:"#A78BFA",
+};
+const PALETTES = { dark: PAL_DARK, light: PAL_LIGHT };
+const themeStore = makeStore("admin_theme", "dark");
+const isLight = () => themeStore.get() === "light";
+const toggleTheme = () => themeStore.set(isLight() ? "dark" : "light");
+const A = new Proxy({}, { get: (_t, k) => (PALETTES[themeStore.get()] || PAL_DARK)[k] });
 
 const C = {
   bg0:"#0C0C0C", bg1:"#111111", bg2:"#171717", bg3:"#1F1F1F",
@@ -414,7 +439,7 @@ const lembreteLabel = (dias) => {
   if (dias <= 30) return "Há ~1 mês";
   return "Nunca enviado";
 };
-const DB = {
+const MOCK_DB = {
   ...DB_RAW,
   clientes: DB_RAW.clientes.map(c => ({
     ...c,
@@ -424,6 +449,76 @@ const DB = {
     historico: HIST_SAMPLE.slice(0, Math.max(2, Math.min(4, Math.round((c.visitas ?? 4) / 5)))),
   })),
 };
+
+// ─── DADOS AO VIVO (v9.4) · backend real × demonstração ───────────────────
+// `MOCK_DB` (acima) é o conjunto de DEMONSTRAÇÃO. Em produção, o login com a
+// ADMIN_KEY traz os dados REAIS do backend (action=dashboard); eles são
+// adaptados ao MESMO formato do MOCK_DB e guardados em `liveDataStore`. O
+// Proxy `DB` devolve os dados reais quando existem, senão cai no MOCK_DB.
+// Resultado: TODAS as telas passam a usar dados reais sem ser editadas uma a
+// uma — basta o painel montar depois do login (o que já acontece).
+const makeMemStore = (initial) => {
+  let state = initial; const subs = new Set();
+  return {
+    get: () => state,
+    set: (n) => { state = typeof n === "function" ? n(state) : n; subs.forEach(f => f()); },
+    subscribe: (fn) => { subs.add(fn); return () => subs.delete(fn); },
+  };
+};
+const liveDataStore = makeMemStore(null);  // null → modo demonstração (usa MOCK_DB). Não persiste (privacidade).
+const adminKeyStore  = makeStore("adminKey", "");  // a chave fica só no dispositivo do dono
+const DB = new Proxy({}, { get: (_t, k) => (liveDataStore.get() || MOCK_DB)[k] });
+
+// Converte a resposta de action=dashboard para o formato interno (igual ao MOCK_DB).
+const adaptDashboard = (r) => {
+  const clientes = (r.clientes || []).map(c => ({
+    id: c.clienteID,
+    nome: c.nome,
+    telefone: c.telefone,
+    visitas: Number(c.totalVisitas) || 0,
+    diasSemVisitar: Number(c.diasDesde) || 0,
+    cancelamentos: Number(c.cancelamentos) || 0,
+    gasto: Number(c.gasto) || 0,            // dashboard ainda não envia gasto total → 0
+    proximo: c.proximo || "—",              // idem próximo agendamento por cliente
+    score: (c.score != null ? Number(c.score) : 0),
+    nivel: c.nivel || BE.calcNivel(Number(c.totalVisitas) || 0),
+    nivelEmoji: c.nivelEmoji,
+    statusCor: c.statusCor,
+    risco: !!c.risco,
+    ultimoLembrete: c.ultimoLembrete ? String(c.ultimoLembrete) : "Nunca enviado",
+    historico: [],                          // histórico por cliente vem em etapa futura
+  }));
+  const agenda = (r.agenda || []).map(a => ({
+    id: a.id,
+    hora: a.horario,
+    nome: a.nome,
+    servico: a.servico,
+    status: a.status,
+    valor: Number(a.preco) || 0,
+    duracao: a.duracao || 45,
+    clienteId: a.clienteId ?? null,
+  }));
+  const k = r.kpis || {};
+  return {
+    clientes,
+    agenda,
+    waitlist: MOCK_DB.waitlist,             // sem endpoint de waitlist ainda → demonstração
+    financeiro: {
+      ...MOCK_DB.financeiro,
+      hoje: { faturado: Number(k.faturadoHoje) || 0, meta: MOCK_DB.financeiro.hoje.meta, servicos: Number(k.agendamentosHoje) || 0 },
+    },
+    _kpis: {
+      faturadoHoje:     Number(k.faturadoHoje) || 0,
+      agendamentosHoje: Number(k.agendamentosHoje) || 0,
+      confirmados:      Number(k.confirmados) || 0,
+      totalClientes:    Number(k.totalClientes) || clientes.length,
+    },
+  };
+};
+
+// Contexto leve de SESSÃO: modo (demo/real), perfil, atualizar e sair.
+const LiveCtx = createContext(null);
+const useLive = () => useContext(LiveCtx) || { mode:"demo", perfil:null, permissoes:null, refresh:()=>{}, logout:()=>{} };
 
 // ─── KEYFRAMES ────────────────────────────────────────────────────────────
 const KEYFRAMES = `
@@ -472,10 +567,8 @@ const KEYFRAMES = `
     to   { opacity:1; }
   }
   * { box-sizing:border-box; }
-  input::placeholder { color:${A.textMuted}; }
   *::-webkit-scrollbar { width:5px; height:5px; }
   *::-webkit-scrollbar-track { background:transparent; }
-  *::-webkit-scrollbar-thumb { background:${A.bg4}; border-radius:3px; }
 `;
 
 // ─── TOAST SYSTEM ─────────────────────────────────────────────────────────
@@ -846,6 +939,8 @@ const Ico = ({ n, size=14, color }) => {
     cpu:      <><rect x={4} y={4} width={16} height={16} rx={2} stroke={c} strokeWidth="1.4" fill="none"/><rect x={9} y={9} width={6} height={6} stroke={c} strokeWidth="1.4" fill="none"/><path d="M9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2" stroke={c} strokeWidth="1.4" strokeLinecap="round"/></>,
     database: <><ellipse cx={12} cy={5} rx={9} ry={3} stroke={c} strokeWidth="1.4" fill="none"/><path d="M21 12c0 1.7-4 3-9 3s-9-1.3-9-3M21 19c0 1.7-4 3-9 3s-9-1.3-9-3" stroke={c} strokeWidth="1.4"/><path d="M3 5v14M21 5v14" stroke={c} strokeWidth="1.4"/></>,
     wifi:     <><path d="M1.4 8.6C5.2 4.8 10.4 3 12 3s6.8 1.8 10.6 5.6" stroke={c} strokeWidth="1.5" fill="none" strokeLinecap="round"/><path d="M5 12.5c1.9-1.9 4.4-3 7-3s5.1 1.1 7 3" stroke={c} strokeWidth="1.5" fill="none" strokeLinecap="round"/><path d="M8.5 16c.9-.9 2.2-1.5 3.5-1.5s2.6.6 3.5 1.5" stroke={c} strokeWidth="1.5" fill="none" strokeLinecap="round"/><circle cx={12} cy={20} r={1} fill={c}/></>,
+    menu:     <path d="M3 6h18M3 12h18M3 18h18" stroke={c} strokeWidth="1.6" strokeLinecap="round"/>,
+    logout:   <><path d="M9 21H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h4" stroke={c} strokeWidth="1.4" fill="none" strokeLinecap="round"/><path d="M16 17l5-5-5-5M21 12H9" stroke={c} strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round"/></>,
   };
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" style={{ flexShrink:0, display:"block" }}>
@@ -1154,7 +1249,15 @@ const MorningBriefing = () => {
 const KPIStrip = () => {
   const [open, setOpen] = useState(false);
   const loaded = useLoader(600);
-  const kpis = [
+  const live = DB._kpis || null;  // presente só no modo real (vem do backend)
+  const emRisco = DB.clientes.filter(c=>BE.shouldFlagRisk(c)).length;
+  const presenca = live && live.agendamentosHoje ? Math.round(live.confirmados/live.agendamentosHoje*100) : null;
+  const kpis = live ? [
+    { label:"Faturado hoje", value:`R$ ${live.faturadoHoje.toLocaleString("pt-BR")}`, sub:`${live.agendamentosHoje} agendamento${live.agendamentosHoje===1?"":"s"}`, delta:"", pos:true,  color:A.blue,  spark:[310,420,380,490,440,520,live.faturadoHoje||1] },
+    { label:"Presença",      value: presenca!=null?`${presenca}%`:"—",                 sub:`${live.confirmados} de ${live.agendamentosHoje}`,                          delta:"", pos:true,  color:A.green, spark:[80,83,78,85,82,88,presenca||0] },
+    { label:"Clientes",      value: String(live.totalClientes),                          sub:"cadastrados",                                                              delta:"", pos:true,  color:A.cyan,  spark:[65,68,66,70,69,71,72] },
+    { label:"Em risco",      value: String(emRisco),                                     sub:"Score < 5",                                                                delta:"", pos:false, color:A.red,   spark:[5,4,6,3,5,4,emRisco] },
+  ] : [
     { label:"Faturamento", value:"R$ 487", sub:"Meta R$ 600", delta:"+12%", pos:true,  color:A.blue,  spark:[310,420,380,490,440,520,487] },
     { label:"Presença",    value:"87%",    sub:"7 de 8",      delta:"+3%",  pos:true,  color:A.green, spark:[80,83,78,85,82,88,87] },
     { label:"Recorrência", value:"72%",    sub:"Voltaram",    delta:"+2%",  pos:true,  color:A.cyan,  spark:[65,68,66,70,69,71,72] },
@@ -1179,7 +1282,7 @@ const KPIStrip = () => {
                   <span style={{ color:A.textSec, fontSize:10 }}>{k.label}</span>
                   <span style={{ color:k.color, fontSize:11.5, fontWeight:700, fontFamily:SHARED.fontMono }}>{k.value}</span>
                   <span style={{ color:k.pos?A.green:A.red, fontSize:9.5, fontWeight:600 }}>
-                    {k.pos?"↑":"↓"} {k.delta}
+                    {k.delta ? <>{k.pos?"↑":"↓"} {k.delta}</> : null}
                   </span>
                 </div>
               ))}
@@ -1196,7 +1299,7 @@ const KPIStrip = () => {
         </div>
       </div>
       {open&&(
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(4, 1fr)", gap:1, background:A.border }}>
+        <div className="aq-grid-1" style={{ display:"grid", gridTemplateColumns:"repeat(4, 1fr)", gap:1, background:A.border }}>
           {kpis.map((k,i)=>(
             <div key={k.label}
               style={{ background:A.bg2, padding:`${S.lg}px ${S.xl}px`,
@@ -1211,7 +1314,7 @@ const KPIStrip = () => {
                   <div style={{ color:A.textPri, fontSize:23, fontWeight:800, fontFamily:SHARED.fontMono, letterSpacing:"-0.04em", lineHeight:1 }}>{k.value}</div>
                   <div style={{ color:A.textSec, fontSize:10, marginTop:4 }}>{k.sub}</div>
                 </div>
-                <span style={{ color:k.pos?A.green:A.red, fontSize:10, fontWeight:600 }}>{k.pos?"↑":"↓"} {k.delta}</span>
+                <span style={{ color:k.pos?A.green:A.red, fontSize:10, fontWeight:600 }}>{k.delta ? <>{k.pos?"↑":"↓"} {k.delta}</> : null}</span>
               </div>
               <Sparkline data={k.spark} color={k.color} width={140} height={28}/>
             </div>
@@ -1224,6 +1327,7 @@ const KPIStrip = () => {
 
 // ─── SIDEBAR ──────────────────────────────────────────────────────────────
 const Sidebar = ({ active, setActive }) => {
+  const { mode, perfil, logout } = useLive();
   // v8: badges calculados dinamicamente a partir do DB
   const nav = [
     { id:"dash",     label:"Hoje",       icon:"sun",      badge:null },
@@ -1293,7 +1397,7 @@ const Sidebar = ({ active, setActive }) => {
         })}
       </div>
       <div style={{ padding:"12px 12px", borderTop:`1px solid ${A.border}` }}>
-        <div style={{ display:"flex", alignItems:"center", gap:9 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:9, marginBottom:8 }}>
           <div style={{
             width:30, height:30, borderRadius:"50%", flexShrink:0,
             background:`linear-gradient(135deg, ${A.blue}99, ${A.purple}88)`,
@@ -1301,53 +1405,99 @@ const Sidebar = ({ active, setActive }) => {
             color:"#fff", fontSize:12, fontWeight:700,
           }}>A</div>
           <div style={{ flex:1, minWidth:0 }}>
-            <div style={{ color:A.textPri, fontSize:11, fontWeight:600 }}>Aquino Admin</div>
+            <div style={{ color:A.textPri, fontSize:11, fontWeight:600 }}>
+              {perfil ? `Aquino · ${perfil}` : "Aquino Admin"}
+            </div>
             <div style={{ color:A.textMuted, fontSize:9 }}>Ipatinga · MG</div>
           </div>
-          <span style={{ width:6, height:6, borderRadius:"50%", background:A.green, boxShadow:`0 0 6px ${A.green}` }}/>
+          <span style={{
+            fontSize:7.5, fontWeight:700, letterSpacing:"0.06em", padding:"2px 5px", borderRadius:R.pill,
+            background: mode==="real" ? `${A.green}1A` : `${A.amber}1A`,
+            color: mode==="real" ? A.green : A.amber,
+            border:`1px solid ${mode==="real"?A.green:A.amber}33`,
+          }}>{mode==="real" ? "AO VIVO" : "DEMO"}</span>
         </div>
+        {mode==="real" && (
+          <div onClick={logout} style={{
+            display:"flex", alignItems:"center", justifyContent:"center", gap:7,
+            padding:"7px 10px", borderRadius:R.md, cursor:"pointer",
+            background:A.bg2, border:`1px solid ${A.border}`, color:A.textSec, fontSize:11, fontWeight:600,
+            transition:`all ${M.micro}`,
+          }}
+            onMouseEnter={e=>{ e.currentTarget.style.borderColor=A.red+"55"; e.currentTarget.style.color=A.red; }}
+            onMouseLeave={e=>{ e.currentTarget.style.borderColor=A.border; e.currentTarget.style.color=A.textSec; }}
+          >
+            <Ico n="logout" size={13} color="currentColor"/> Sair
+          </div>
+        )}
       </div>
     </div>
   );
 };
 
 // ─── TOPBAR (v8: busca funcional + painel de notificações) ───────────────
-const Topbar = ({ title, subtitle, onSearchOpen, onNotifsOpen, notifsOpen, unreadCount }) => {
+const Topbar = ({ title, subtitle, onSearchOpen, onNotifsOpen, notifsOpen, unreadCount, mobile, onMenu }) => {
   const now = useLiveTime();
+  const light = isLight();
   return (
     <div style={{
       height:54, background:A.bg1, borderBottom:`1px solid ${A.border}`,
-      display:"flex", alignItems:"center", padding:`0 ${S.xxl}px`,
-      justifyContent:"space-between", flexShrink:0, position:"relative", zIndex:100,
+      display:"flex", alignItems:"center", padding:`0 ${mobile?S.md:S.xxl}px`,
+      justifyContent:"space-between", flexShrink:0, position:"relative", zIndex:100, gap:8,
     }}>
-      <div>
-        <div style={{ color:A.textPri, fontWeight:700, fontSize:14 }}>{title}</div>
-        {subtitle&&<div style={{ color:A.textMuted, fontSize:10 }}>{subtitle}</div>}
+      <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}>
+        {mobile && (
+          <div onClick={onMenu} aria-label="Menu" style={{
+            width:34, height:34, borderRadius:R.md, flexShrink:0,
+            background:A.bg2, border:`1px solid ${A.border}`,
+            display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer",
+          }}><Ico n="menu" size={16} color={A.textSec}/></div>
+        )}
+        <div style={{minWidth:0}}>
+          <div style={{ color:A.textPri, fontWeight:700, fontSize:14, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{title}</div>
+          {subtitle&&<div className={mobile?"aq-hide-mobile":undefined} style={{ color:A.textMuted, fontSize:10, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{subtitle}</div>}
+        </div>
       </div>
       <div style={{ display:"flex", alignItems:"center", gap:S.sm }}>
-        {/* Relógio ao vivo */}
-        <div style={{
-          display:"flex", alignItems:"center", gap:6,
-          padding:"5px 10px", borderRadius:R.md,
+        {/* Relógio ao vivo (oculto no celular) */}
+        {!mobile && (
+          <div style={{
+            display:"flex", alignItems:"center", gap:6,
+            padding:"5px 10px", borderRadius:R.md,
+            background:A.bg2, border:`1px solid ${A.border}`,
+          }}>
+            <span style={{ color:A.textMuted, fontSize:10, fontFamily:SHARED.fontMono }}>{formatTimeBR(now)}</span>
+          </div>
+        )}
+        {/* busca funcional (oculta no celular) */}
+        {!mobile && (
+          <div onClick={onSearchOpen} style={{
+            display:"flex", alignItems:"center", gap:7,
+            background:A.bg2, border:`1px solid ${A.border}`,
+            borderRadius:R.md, padding:"7px 12px", cursor:"pointer", minWidth:190,
+            transition:`border-color ${M.micro}`,
+          }}
+            onMouseEnter={e=>e.currentTarget.style.borderColor=A.borderHi}
+            onMouseLeave={e=>e.currentTarget.style.borderColor=A.border}
+          >
+            <Ico n="search" size={12} color={A.textMuted}/>
+            <span style={{ color:A.textMuted, fontSize:11, flex:1 }}>Buscar…</span>
+            <span style={{ color:A.textMuted, fontSize:9, background:A.bg3, borderRadius:3, padding:"1px 5px", fontFamily:SHARED.fontMono }}>⌘K</span>
+          </div>
+        )}
+        {/* botão de tema claro/escuro */}
+        <div onClick={toggleTheme} aria-label="Alternar tema" title="Tema claro / escuro" style={{
+          width:34, height:34, borderRadius:R.md, flexShrink:0,
           background:A.bg2, border:`1px solid ${A.border}`,
-        }}>
-          <span style={{ color:A.textMuted, fontSize:10, fontFamily:SHARED.fontMono }}>{formatTimeBR(now)}</span>
-        </div>
-        {/* v8: busca funcional */}
-        <div onClick={onSearchOpen} style={{
-          display:"flex", alignItems:"center", gap:7,
-          background:A.bg2, border:`1px solid ${A.border}`,
-          borderRadius:R.md, padding:"7px 12px", cursor:"pointer", minWidth:190,
-          transition:`border-color ${M.micro}`,
+          display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer",
+          transition:`all ${M.micro}`,
         }}
           onMouseEnter={e=>e.currentTarget.style.borderColor=A.borderHi}
           onMouseLeave={e=>e.currentTarget.style.borderColor=A.border}
         >
-          <Ico n="search" size={12} color={A.textMuted}/>
-          <span style={{ color:A.textMuted, fontSize:11, flex:1 }}>Buscar…</span>
-          <span style={{ color:A.textMuted, fontSize:9, background:A.bg3, borderRadius:3, padding:"1px 5px", fontFamily:SHARED.fontMono }}>⌘K</span>
+          <span style={{fontSize:15,lineHeight:1}}>{light?"☾":"☀"}</span>
         </div>
-        {/* v8: sino com dropdown de notificações */}
+        {/* sino com dropdown de notificações */}
         <div style={{ position:"relative" }}>
           <div onClick={onNotifsOpen} style={{
             width:34, height:34, borderRadius:R.md,
@@ -1364,7 +1514,7 @@ const Topbar = ({ title, subtitle, onSearchOpen, onNotifsOpen, notifsOpen, unrea
             </div>
           )}
         </div>
-        <Btn variant="primary" size="md"><Ico n="plus" size={12} color="#fff"/>Agendar</Btn>
+        {!mobile && <Btn variant="primary" size="md"><Ico n="plus" size={12} color="#fff"/>Agendar</Btn>}
       </div>
     </div>
   );
@@ -1385,12 +1535,16 @@ const AgendaDia = () => {
     fila:      {color:A.purple,label:"Fila"},
     vago:      {color:A.bg4,   label:"Vago"},
   };
+  const ags = DB.agenda || [];
+  const totalH = ags.length;
+  const confirmadosH = ags.filter(s=>["confirmado","realizado"].includes(s.status)).length;
+  const riscosH = ags.filter(s=>s.status==="risco").length;
   return (
     <Card>
-      <SectionHead title="Agenda · Hoje" sub="8 horários · 6 confirmados"
+      <SectionHead title="Agenda · Hoje" sub={`${totalH} horário${totalH===1?"":"s"} · ${confirmadosH} confirmado${confirmadosH===1?"":"s"}`}
         action={loaded?<div style={{display:"flex",gap:5}}>
-          <Badge color={A.green} dot>6 ok</Badge>
-          <Badge color={A.red} dot>1 risco</Badge>
+          <Badge color={A.green} dot>{confirmadosH} ok</Badge>
+          {riscosH>0 && <Badge color={A.red} dot>{riscosH} risco</Badge>}
         </div>:null}
       />
       {!loaded?(
@@ -1643,7 +1797,7 @@ const ScoreDistrib = () => {
 // Consome o endpoint `metricas` do GAS (faturamento/dia, receita por serviço,
 // DRE e funil de comparecimento). Sem backend/chave → série demo coerente, no
 // mesmo estilo SVG da casa (sem dependências externas tipo Recharts).
-const adminKeyStore = makeStore("adminKey", "");
+// (adminKeyStore agora é definido no topo, junto da infra de dados ao vivo.)
 
 function serieDemoMetricas(dias = 30) {
   const hoje = new Date();
@@ -1963,7 +2117,7 @@ const AgendaPage = () => {
   };
 
   return (
-    <div style={{display:"flex",gap:S.md}}>
+    <div className="aq-row-stack" style={{display:"flex",gap:S.md}}>
       <div style={{flex:1}}>
         <Card pad={false}>
           <div style={{padding:`${S.md}px ${S.xl}px`,borderBottom:`1px solid ${A.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -2116,10 +2270,10 @@ const ClientesPage = () => {
     .filter(c=>!search||c.nome.toLowerCase().includes(search.toLowerCase()));
   const sel=selected?DB.clientes.find(c=>c.id===selected):null;
   return (
-    <div style={{display:"flex",gap:S.md}}>
+    <div className="aq-row-stack" style={{display:"flex",gap:S.md}}>
       <div style={{flex:1,minWidth:0,display:"flex",flexDirection:"column",gap:S.md}}>
         <div style={{display:"flex",gap:S.md}}>
-          {[{label:"Ativos",v:"263",c:A.blue},{label:"VIPs",v:DB.clientes.filter(c=>c.nivel==="VIP").length,c:A.cyan},
+          {[{label:"Ativos",v:String(DB.clientes.length),c:A.blue},{label:"VIPs",v:DB.clientes.filter(c=>c.nivel==="VIP").length,c:A.cyan},
             {label:"Em risco",v:DB.clientes.filter(c=>BE.shouldFlagRisk(c)).length,c:A.red},{label:"Ticket médio",v:"R$ 64",c:A.green}].map((st,i)=>(
             <Card key={i} style={{flex:1}}>
               <div style={{color:A.textMuted,fontSize:9,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:4}}>{st.label}</div>
@@ -3757,20 +3911,20 @@ const HomePage = () => (
   <div style={{display:"flex",flexDirection:"column",gap:S.lg}}>
     <MorningBriefing/>
     <KPIStrip/>
-    <div style={{display:"flex",gap:S.md,alignItems:"flex-start"}}>
-      <div style={{flex:"0 0 340px"}}><AgendaDia/></div>
-      <div style={{flex:1,display:"flex",flexDirection:"column",gap:S.md,minWidth:0}}>
-        <div style={{display:"flex",gap:S.md}}>
+    <div className="aq-row-stack" style={{display:"flex",gap:S.md,alignItems:"flex-start"}}>
+      <div className="aq-fixed-auto" style={{flex:"0 0 340px",width:"100%",maxWidth:"100%"}}><AgendaDia/></div>
+      <div style={{flex:1,display:"flex",flexDirection:"column",gap:S.md,minWidth:0,width:"100%"}}>
+        <div className="aq-row-stack" style={{display:"flex",gap:S.md}}>
           <div style={{flex:1}}><RetencaoChart/></div>
           <div style={{flex:1}}><ScoreDistrib/></div>
         </div>
-        <div style={{display:"flex",gap:S.md}}>
+        <div className="aq-row-stack" style={{display:"flex",gap:S.md}}>
           <div style={{flex:1}}><ClientesRisco/></div>
           <div style={{flex:1}}><WaitlistHome/></div>
         </div>
         <MetricasReais/>
       </div>
-      <div style={{flexShrink:0}}><MobilePreview/></div>
+      <div className="aq-hide-mobile" style={{flexShrink:0}}><MobilePreview/></div>
     </div>
   </div>
 );
@@ -3877,7 +4031,126 @@ const Onboarding = ({ onDone }) => {
 };
 
 // ─── APP ROOT ─────────────────────────────────────────────────────────────
+// ─── RESPONSIVO · detector de celular ─────────────────────────────────────
+const useIsMobile = (bp = 820) => {
+  const [m, setM] = useState(() => (typeof window !== "undefined" ? window.innerWidth < bp : false));
+  useEffect(() => {
+    const on = () => setM(window.innerWidth < bp);
+    window.addEventListener("resize", on); on();
+    return () => window.removeEventListener("resize", on);
+  }, [bp]);
+  return m;
+};
+
+// ─── ESTILO DE TEMA · cores dinâmicas + regras responsivas ────────────────
+// Injeta as cores que dependem do tema (fundo, placeholder, scrollbar) e as
+// regras @media que tornam o painel usável no celular. Assina o themeStore
+// para reescrever tudo ao trocar de tema.
+const ThemeStyle = () => {
+  useStore(themeStore);
+  const light = isLight();
+  return (
+    <style>{`
+      html, body { background:${A.bg0}; margin:0; }
+      input::placeholder, textarea::placeholder { color:${A.textMuted}; }
+      *::-webkit-scrollbar-thumb { background:${A.bg4}; border-radius:3px; }
+      input, textarea, select { color-scheme:${light ? "light" : "dark"}; }
+      @media (max-width: 820px) {
+        .aq-row-stack { flex-direction:column !important; }
+        .aq-hide-mobile { display:none !important; }
+        .aq-grid-1 { grid-template-columns:1fr !important; }
+        .aq-fixed-auto { flex:1 1 auto !important; }
+      }
+    `}</style>
+  );
+};
+
+// ─── CARREGANDO (splash) ──────────────────────────────────────────────────
+const SplashLoading = () => (
+  <div style={{
+    minHeight:"100vh", background:A.bg0, color:A.textPri, fontFamily:SHARED.fontAdmin,
+    display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:16,
+  }}>
+    <div style={{
+      width:46, height:46, borderRadius:R.lg,
+      background:`linear-gradient(135deg, ${A.blue}CC, ${A.cyan}88)`,
+      display:"flex", alignItems:"center", justifyContent:"center",
+      boxShadow:`0 0 22px ${A.blue}40`, animation:"pulse 1.6s ease-in-out infinite",
+    }}><Ico n="cut" size={22} color="#fff"/></div>
+    <div style={{color:A.textSec,fontSize:12}}>Carregando o painel…</div>
+  </div>
+);
+
+// ─── LOGIN ────────────────────────────────────────────────────────────────
+// Pede a chave de acesso (ADMIN_KEY). Ao entrar, valida no backend; se a chave
+// for boa, o painel abre com os DADOS REAIS. A chave fica salva só no aparelho.
+const LoginScreen = ({ onLogin, error }) => {
+  useStore(themeStore);
+  const [key, setKey] = useState("");
+  const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    if (!key.trim() || busy) return;
+    setBusy(true);
+    await onLogin(key.trim());
+    setBusy(false);
+  };
+  return (
+    <div style={{
+      minHeight:"100vh", background:A.bg0, color:A.textPri, fontFamily:SHARED.fontAdmin,
+      display:"flex", alignItems:"center", justifyContent:"center", padding:S.xl,
+    }}>
+      <div style={{ width:360, maxWidth:"100%", animation:`fadeUp ${M.enter} both` }}>
+        <div style={{display:"flex",flexDirection:"column",alignItems:"center",marginBottom:S.xl}}>
+          <div style={{
+            width:52, height:52, borderRadius:R.lg,
+            background:`linear-gradient(135deg, ${A.blue}CC, ${A.cyan}88)`,
+            display:"flex", alignItems:"center", justifyContent:"center",
+            boxShadow:`0 0 22px ${A.blue}40`, marginBottom:12,
+          }}><Ico n="cut" size={24} color="#fff"/></div>
+          <div style={{color:A.textPri,fontWeight:800,fontSize:18,letterSpacing:"0.02em"}}>AQUINO</div>
+          <div style={{color:A.textMuted,fontSize:10,letterSpacing:"0.08em",textTransform:"uppercase"}}>Painel de gestão</div>
+        </div>
+        <Card>
+          <div style={{color:A.textPri,fontSize:15,fontWeight:700,marginBottom:4}}>Entrar</div>
+          <div style={{color:A.textSec,fontSize:11,marginBottom:S.lg}}>Digite a chave de acesso do painel.</div>
+          <Field label="Chave de acesso">
+            <input
+              type="password" value={key} autoFocus
+              onChange={e=>setKey(e.target.value)}
+              onKeyDown={e=>{ if(e.key==="Enter") submit(); }}
+              placeholder="••••••••"
+              style={{
+                width:"100%", background:A.bg1, color:A.textPri,
+                border:`1px solid ${error?A.red:A.border}`, borderRadius:R.md,
+                padding:"10px 12px", fontSize:13, outline:"none", fontFamily:SHARED.fontAdmin,
+              }}
+            />
+          </Field>
+          {error && (
+            <div style={{display:"flex",alignItems:"center",gap:6,color:A.red,fontSize:10.5,marginTop:8}}>
+              <Ico n="warning" size={12} color={A.red}/> {error}
+            </div>
+          )}
+          <div style={{marginTop:S.lg}}>
+            <Btn variant="primary" size="lg" disabled={busy} onClick={submit} style={{width:"100%",justifyContent:"center"}}>
+              {busy ? "Verificando…" : "Entrar"}
+            </Btn>
+          </div>
+        </Card>
+        <div style={{textAlign:"center",color:A.textMuted,fontSize:8.5,marginTop:S.md}}>
+          Acesso restrito · a chave fica salva só neste aparelho
+        </div>
+      </div>
+    </div>
+  );
+};
+
 function AppInner() {
+  useStore(themeStore);                 // re-renderiza (cascata) ao trocar tema
+  const live = useLive();
+  const mobile = useIsMobile();
+  const [drawer, setDrawer] = useState(false);
+
   const [activeNav, setActiveNav] = useState("dash");
   const [showOnboard, setShowOnboard] = useState(() => !isOnboarded());
   const [searchOpen, setSearchOpen] = useState(false);
@@ -3898,26 +4171,28 @@ function AppInner() {
   useEffect(()=>{
     const handler=(e)=>{
       if((e.metaKey||e.ctrlKey)&&e.key==="k"){ e.preventDefault(); setSearchOpen(true); setNotifsOpen(false); }
-      if(e.key==="Escape"){ setSearchOpen(false); setNotifsOpen(false); }
+      if(e.key==="Escape"){ setSearchOpen(false); setNotifsOpen(false); setDrawer(false); }
     };
     window.addEventListener("keydown",handler);
     return ()=>window.removeEventListener("keydown",handler);
   },[]);
 
+  // ZeroThink só no modo demonstração (usa clientes de exemplo; no real os IDs diferem)
   useEffect(()=>{
     if (activeNav !== "dash") return;
+    if (live.mode !== "demo") return;
     try { if (sessionStorage.getItem(DISMISS_KEY)) return; } catch(e) {}
     const t=setTimeout(()=>{
       setZeroThinkTrigger({
         slot:"15:30", client:"Marcos Duarte",
         waitlist:[
-          { nome:"Felipe Gomes", nivel:"Bronze", score:BE.calcScore(DB.clientes.find(c=>c.id===9)) },
-          { nome:"Roberto Melo",  nivel:"Prata",  score:BE.calcScore(DB.clientes.find(c=>c.id===10)) },
+          { nome:"Felipe Gomes", nivel:"Bronze", score:BE.calcScore(MOCK_DB.clientes.find(c=>c.id===9)) },
+          { nome:"Roberto Melo",  nivel:"Prata",  score:BE.calcScore(MOCK_DB.clientes.find(c=>c.id===10)) },
         ],
       });
     },5000);
     return ()=>clearTimeout(t);
-  },[activeNav]);
+  },[activeNav, live.mode]);
 
   const navigate = useCallback((nav)=>{
     setActiveNav(nav);
@@ -3965,17 +4240,33 @@ function AppInner() {
       {/* v8: Painel de notificações */}
       <NotificationsPanel open={notifsOpen} onClose={()=>setNotifsOpen(false)}/>
 
-      <ZeroThinkBanner trigger={zeroThinkTrigger} onDismiss={handleDismiss}/>
+      {live.mode==="demo" && <ZeroThinkBanner trigger={zeroThinkTrigger} onDismiss={handleDismiss}/>}
 
       <div style={{
         minHeight:"100vh", background:A.bg0, color:A.textPri,
         fontFamily:SHARED.fontAdmin, display:"flex", flexDirection:"column",
       }}>
         <div style={{display:"flex",flex:1,minHeight:0}}>
-          <Sidebar active={activeNav} setActive={setActiveNav}/>
+          {/* Desktop: barra lateral fixa. Celular: gaveta deslizante. */}
+          {!mobile && <Sidebar active={activeNav} setActive={setActiveNav}/>}
+          {mobile && drawer && (
+            <div onClick={()=>setDrawer(false)} style={{
+              position:"fixed", inset:0, zIndex:400, background:"rgba(0,0,0,0.5)",
+              animation:`overlayIn ${M.base}`,
+            }}>
+              <div onClick={e=>e.stopPropagation()} style={{
+                height:"100%", width:230, boxShadow:"2px 0 24px rgba(0,0,0,0.45)",
+                animation:`slideInLeft ${M.base}`,
+              }}>
+                <Sidebar active={activeNav} setActive={(id)=>{ setActiveNav(id); setDrawer(false); }}/>
+              </div>
+            </div>
+          )}
           <div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0,overflow:"auto"}}>
             <Topbar
               {...topbar[activeNav]}
+              mobile={mobile}
+              onMenu={()=>setDrawer(true)}
               onSearchOpen={()=>{ setSearchOpen(true); setNotifsOpen(false); }}
               onNotifsOpen={()=>setNotifsOpen(v=>!v)}
               notifsOpen={notifsOpen}
@@ -3984,8 +4275,8 @@ function AppInner() {
             <div
               key={activeNav}
               style={{
-                padding:`${S.xl}px ${S.xxl}px ${S.xxl}px`,
-                animation:`pageEnter ${M.enter} both`,
+                padding: mobile ? `${S.md}px ${S.md}px ${S.xl}px` : `${S.xl}px ${S.xxl}px ${S.xxl}px`,
+                animation:`pageEnter ${M.enter} both`, minWidth:0,
               }}
             >
               {renderPage()}
@@ -3993,37 +4284,111 @@ function AppInner() {
           </div>
         </div>
         <div style={{
-          padding:"7px 24px", background:A.bg1, borderTop:`1px solid ${A.border}`,
-          display:"flex", justifyContent:"space-between", alignItems:"center", flexShrink:0,
+          padding: mobile ? "7px 14px" : "7px 24px", background:A.bg1, borderTop:`1px solid ${A.border}`,
+          display:"flex", justifyContent:"space-between", alignItems:"center", flexShrink:0, gap:8,
         }}>
-          <span style={{color:A.textMuted,fontSize:8.5}}>
+          <span style={{color:A.textMuted,fontSize:8.5,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
             AQUINO Barbearia & Estética · Painel de gestão
           </span>
-          <div style={{display:"flex",gap:14}}>
-            {[
-              {label:"Sistema", ok:true},
-              {label:"Meta API", ok:true},
-              {label:"Calendar", ok:true},
-              {label:"WhatsApp", ok:false},
-            ].map(s=>(
-              <span key={s.label} style={{color:s.ok?A.green:A.amber,fontSize:8.5,display:"flex",alignItems:"center",gap:4}}>
-                <span style={{width:5,height:5,borderRadius:"50%",background:s.ok?A.green:A.amber,display:"inline-block",
-                  boxShadow:`0 0 4px ${s.ok?A.green:A.amber}88`,animation:"pulse 2s ease-in-out infinite"}}/>
-                {s.label}{!s.ok&&" ⚠"}
-              </span>
-            ))}
-          </div>
+          <span style={{
+            color: live.mode==="real" ? A.green : A.amber, fontSize:8.5, flexShrink:0,
+            display:"flex", alignItems:"center", gap:5,
+          }}>
+            <span style={{width:5,height:5,borderRadius:"50%",
+              background:live.mode==="real"?A.green:A.amber,
+              boxShadow:`0 0 4px ${live.mode==="real"?A.green:A.amber}88`,
+              animation:"pulse 2s ease-in-out infinite"}}/>
+            {live.mode==="real" ? `Conectado${live.perfil ? ` · ${live.perfil}` : ""}` : "Modo demonstração"}
+          </span>
         </div>
       </div>
     </>
   );
 }
 
+// ─── CÉREBRO · decide entre LOGIN e PAINEL, busca os dados reais ──────────
+function AppShell() {
+  useStore(themeStore);
+  useStore(adminKeyStore);
+  const [status, setStatus] = useState("checking");   // checking | login | ready
+  const [error, setError]   = useState("");
+  const [meta, setMeta]     = useState({ mode:"demo", perfil:null, permissoes:null });
+
+  // tenta abrir o painel com a chave atual (no 1º carregamento e no refresh)
+  const load = useCallback(async () => {
+    const k = adminKeyStore.get();
+    if (!ENV.hasBackend) {                 // sem backend configurado → demonstração
+      liveDataStore.set(null);
+      setMeta({ mode:"demo", perfil:null, permissoes:null });
+      setStatus("ready");
+      return;
+    }
+    if (!k) { setStatus("login"); return; }
+    setStatus("checking");
+    try {
+      const r = await api.dashboard(k);
+      if (r && r.success && r.autenticado) {
+        liveDataStore.set(adaptDashboard(r));
+        setMeta({ mode:"real", perfil:r.perfil||null, permissoes:r.permissoes||null });
+        setError(""); setStatus("ready"); return;
+      }
+      adminKeyStore.set("");
+      setError("Chave incorreta. Tente novamente.");
+      setStatus("login");
+    } catch (e) {
+      setError("Não consegui falar com o servidor. Verifique a conexão.");
+      setStatus("login");
+    }
+  }, []);
+
+  useEffect(() => { load(); /* 1ª vez */ }, [load]);
+
+  // chamado pela tela de login
+  const doLogin = useCallback(async (k) => {
+    setError("");
+    try {
+      const r = await api.dashboard(k);
+      if (r && r.success && r.autenticado) {
+        adminKeyStore.set(k);                 // persiste só neste aparelho
+        liveDataStore.set(adaptDashboard(r));
+        setMeta({ mode:"real", perfil:r.perfil||null, permissoes:r.permissoes||null });
+        setStatus("ready");
+        return true;
+      }
+      setError("Chave incorreta. Tente novamente.");
+      return false;
+    } catch (e) {
+      setError("Não consegui falar com o servidor. Verifique a conexão e tente de novo.");
+      return false;
+    }
+  }, []);
+
+  const logout = useCallback(() => {
+    adminKeyStore.set("");
+    liveDataStore.set(null);
+    setMeta({ mode:"demo", perfil:null, permissoes:null });
+    setStatus("login");
+  }, []);
+
+  const refresh = useCallback(() => { load(); }, [load]);
+
+  if (status === "checking") return <SplashLoading/>;
+  if (status === "login" && ENV.hasBackend) return <LoginScreen onLogin={doLogin} error={error}/>;
+
+  return (
+    <LiveCtx.Provider value={{ ...meta, refresh, logout }}>
+      <AppInner/>
+    </LiveCtx.Provider>
+  );
+}
+
 export default function App() {
   return (
     <ToastProvider>
-      <AppInner/>
+      <ThemeStyle/>
+      <AppShell/>
     </ToastProvider>
   );
 }
+
 
