@@ -175,7 +175,7 @@ const STRINGS = {
   t4_nascimento:{ pt:"Data de nascimento", en:"Date of birth", es:"Fecha de nacimiento", fr:"Date de naissance" },
   t4_nasc_aviso:{ pt:"Usamos para mensagem de aniversário e cuidados específicos.", en:"Used for birthday greetings and tailored care.", es:"Lo usamos para felicitaciones de cumpleaños y cuidados específicos.", fr:"Utilisé pour les vœux d'anniversaire et des soins adaptés." },
   t4_email:     { pt:"E-mail", en:"E-mail", es:"Correo electrónico", fr:"E-mail" },
-  t4_foto_aviso:{ pt:"Foto de perfil (obrigatória) — ajuda no seu reconhecimento.", en:"Profile photo (required) — helps us recognize you.", es:"Foto de perfil (obligatoria) — ayuda a reconocerte.", fr:"Photo de profil (obligatoire) — aide à vous reconnaître." },
+  t4_foto_aviso:{ pt:"Foto de perfil (opcional) — ajuda o barbeiro a te reconhecer.", en:"Profile photo (optional) — helps the barber recognize you.", es:"Foto de perfil (opcional) — ayuda al barbero a reconocerte.", fr:"Photo de profil (optionnelle) — aide le barbier à vous reconnaître." },
   t4_obs:       { pt:"Observação", en:"Note", es:"Observación", fr:"Remarque" },
   t4_opcional:  { pt:"(opcional)", en:"(optional)", es:"(opcional)", fr:"(facultatif)" },
   t4_obs_ph:    { pt:"Algum pedido especial?", en:"Any special request?", es:"¿Alguna petición especial?", fr:"Une demande particulière ?" },
@@ -1114,7 +1114,7 @@ function Portal() {
       return;
     }
     if (!emailValido(email)) { setErro(t("err_email")); return; }  // Fatia A
-    if (!fotoUrl) { setErro(t("err_foto")); return; } // obrigatória
+    // foto agora é OPCIONAL — não bloqueia o agendamento (exigidos: nome/sobrenome/nascimento/email)
     setErro(""); setEnviando(true);
     try {
       const r = await api.agendar({
@@ -1183,7 +1183,7 @@ function Portal() {
     if (!sobrenome.trim()) { setErro(t("err_sobrenome")); return; }
     if (!nascValido(nascimento)) { setErro(t("err_nasc")); return; }
     if (!emailValido(email)) { setErro(t("err_email")); return; }
-    if (!fotoUrl) { setErro(t("err_foto")); return; }
+    // foto opcional — não bloqueia salvar o perfil
     setErro(""); setSalvandoPerfil(true);
     try {
       const r = await api.atualizarPerfil({
@@ -1492,7 +1492,7 @@ function Portal() {
 
   // PASSO 10 — EDITAR PERFIL (Fatia A)
   if (step===EDITAR_PERFIL) {
-    const podeSalvar = !salvandoPerfil && !enviandoFoto && nome.trim() && sobrenome.trim() && nascValido(nascimento) && emailValido(email) && fotoUrl;
+    const podeSalvar = !salvandoPerfil && !enviandoFoto && nome.trim() && sobrenome.trim() && nascValido(nascimento) && emailValido(email);
     return (
       <Shell onToggleTema={onToggleTema}>
         <Header titulo={t("ed_titulo")} sub={t("ed_sub")} onBack={()=>{ setErro(""); setStep(PERFIL); }}/>
@@ -1729,7 +1729,7 @@ function Portal() {
         </div>
         {erro && <div style={{color:T.danger,fontSize:13,marginTop:12}}>{erro}</div>}
       </div>
-      <Bottom comBarra={!reagendandoId}><Primary onClick={confirmar} disabled={enviando||enviandoFoto||!nome.trim()||!sobrenome.trim()||!nascValido(nascimento)||!emailValido(email)||!fotoUrl}>{enviando?t("t4_confirmando"):t("t4_confirmar")}</Primary></Bottom>
+      <Bottom comBarra={!reagendandoId}><Primary onClick={confirmar} disabled={enviando||enviandoFoto||!nome.trim()||!sobrenome.trim()||!nascValido(nascimento)||!emailValido(email)}>{enviando?t("t4_confirmando"):t("t4_confirmar")}</Primary></Bottom>
       {!reagendandoId && (<>
         <div style={{height:80}}/>
         <BottomNav ativo={1} onNav={irPara} />
