@@ -69,11 +69,15 @@ const moonIllumination = (date) => {
 export const iluminacaoLuaDe = (d) => moonIllumination(d).fraction;
 
 // Nome da fase (4 principais), avaliado ao MEIO-DIA local do dia.
-// Convenção das agendas brasileiras (e do uso popular: "depois da Nova surge a
-// Crescente"): "Lua Nova" e "Lua Cheia" marcam os DIAS dos eventos (vale e pico
-// de iluminação); entre eles, a lua é "Crescente" (crescendo) ou "Minguante"
-// (diminuindo). Detectamos o evento pelo mínimo/máximo real de iluminação no dia
-// — robusto, sem depender do instante exato em que a pessoa abre o site.
+// Convenção das agendas de papel brasileiras (Animativa etc.): o nome é a ÚLTIMA
+// fase principal ATINGIDA e permanece até a próxima:
+//   Nova → (Quarto) Crescente → Cheia → (Quarto) Minguante → Nova …
+// Ou seja, DEPOIS da Cheia a lua continua "Cheia" até o Quarto Minguante, e
+// DEPOIS da Nova continua "Nova" até o Quarto Crescente. (Antes mostrava a lua de
+// 99% como "Minguante" logo no dia seguinte à cheia — errado para essa convenção.)
+// Detecção robusta, sem depender do instante exato em que a pessoa abre o site:
+//   • dia de PICO de iluminação  = Lua Cheia;  dia de VALE = Lua Nova;
+//   • entre eles, usa o lado (crescendo/minguando) e o limite de 50% (= os quartos).
 export const faseLuaDe = (d) => {
   const ilumNoDia = (date) => moonIllumination(new Date(date.getFullYear(), date.getMonth(), date.getDate(), 12, 0, 0)).fraction;
   const ontem = new Date(d); ontem.setDate(ontem.getDate() - 1);
@@ -81,10 +85,13 @@ export const faseLuaDe = (d) => {
   const fOntem = ilumNoDia(ontem);
   const fHoje  = ilumNoDia(d);
   const fAmanha = ilumNoDia(amanha);
-  const crescendo = fAmanha >= fHoje; // iluminação aumentando → fase crescente
-  if (fHoje <= fOntem && fHoje <= fAmanha && fHoje < 0.5) return "Lua Nova";   // vale → Nova
-  if (fHoje >= fOntem && fHoje >= fAmanha && fHoje > 0.5) return "Lua Cheia";  // pico → Cheia
-  return crescendo ? "Lua Crescente" : "Lua Minguante";
+  const crescendo = fAmanha >= fHoje; // iluminação aumentando → lado crescente do ciclo
+  if (fHoje >= fOntem && fHoje >= fAmanha) return "Lua Cheia"; // pico → dia da Cheia
+  if (fHoje <= fOntem && fHoje <= fAmanha) return "Lua Nova";  // vale → dia da Nova
+  // Acima de 50% iluminada: crescendo ainda é Crescente; minguando já passou da Cheia.
+  if (fHoje >= 0.5) return crescendo ? "Lua Crescente" : "Lua Cheia";
+  // Abaixo de 50%: crescendo ainda é Nova (antes do Q. Crescente); minguando é Minguante.
+  return crescendo ? "Lua Nova" : "Lua Minguante";
 };
 
 export default faseLuaDe;
