@@ -497,6 +497,7 @@ const adaptDashboard = (r) => {
     valor: Number(a.preco) || 0,
     duracao: a.duracao || 45,
     clienteId: a.clienteId ?? null,
+    obs: a.obs || "",
   }));
   const k = r.kpis || {};
   return {
@@ -1587,6 +1588,7 @@ const AgendaDia = () => {
                   <div style={{color:isVago?A.textMuted:A.textPri,fontSize:12,fontWeight:isVago?400:600,
                     whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{s.nome}</div>
                   <div style={{color:A.textSec,fontSize:10}}>{s.servico}</div>
+                  {s.obs&&<div style={{color:A.textMuted,fontSize:9.5,fontStyle:"italic",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>Obs: {s.obs}</div>}
                 </div>
                 <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
                   {cliente&&<ScoreDot score={cliente.score}/>}
@@ -2160,6 +2162,7 @@ const AgendaPage = () => {
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{color:s.nome==="—"?A.textMuted:A.textPri,fontSize:12,fontWeight:600}}>{s.nome}</div>
                       <div style={{color:A.textSec,fontSize:10}}>{s.servico} · {s.duracao}min</div>
+                      {s.obs&&<div style={{color:A.textMuted,fontSize:9.5,fontStyle:"italic",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>Obs: {s.obs}</div>}
                     </div>
                     <div style={{display:"flex",alignItems:"center",gap:8}}>
                       {cliente&&<ScoreDot score={cliente.score}/>}
