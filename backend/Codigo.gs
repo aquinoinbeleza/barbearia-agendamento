@@ -23,9 +23,12 @@
 var SHEETS = { CLIENTES:'Clientes', AGENDAMENTOS:'Agendamentos', FINANCEIRO:'Financeiro', SERVICOS:'Servicos', FEEDBACKS:'Feedbacks', FILA_ESPERA:'FilaEspera', PENDENTES:'MensagensPendentes', METRICAS:'Metricas', LOG:'Log' };
 
 var HEADERS = {
-  // Email é APPEND-ONLY no fim (col J) — não desloca os índices canônicos existentes
-  CLIENTES:     ['ClienteID','Telefone','Nome','NomeAbreviado','UltimoAgendamento','TotalAgendamentos','IntervaloDias','Nascimento','UltimoLembrete','Email'],
-  AGENDAMENTOS: ['ID','Nome','NomeAbreviado','Telefone','ClienteID','Servico','Duracao','Data','Horario','Preco','Status','CriadoEm','SinalStatus','Barbeiro'],
+  // Email é APPEND-ONLY no fim (col J) — não desloca os índices canônicos existentes.
+  // Dependentes (col K) também é append-only: JSON [{nome,nascimento}] dos filhos/dependentes.
+  // Foto (col L) também é append-only: link da foto do cliente (no Google Drive).
+  CLIENTES:     ['ClienteID','Telefone','Nome','NomeAbreviado','UltimoAgendamento','TotalAgendamentos','IntervaloDias','Nascimento','UltimoLembrete','Email','Dependentes','Foto'],
+  // Para (col O) também é append-only: nome do dependente quando o atendimento é p/ um filho.
+  AGENDAMENTOS: ['ID','Nome','NomeAbreviado','Telefone','ClienteID','Servico','Duracao','Data','Horario','Preco','Status','CriadoEm','SinalStatus','Barbeiro','Para','Observacao'],
   FINANCEIRO:   ['Data','Tipo','Categoria','Descricao','Valor','Profissional','AgendamentoID','FormaPagamento','Status'],
   SERVICOS:     ['ID','Nome','Preco','Duracao','Ativo'],
   FEEDBACKS:    ['Timestamp','ClienteID','Telefone','AgendamentoID','Nota','Comentario'],
@@ -38,8 +41,8 @@ var HEADERS = {
 };
 
 // Índices de coluna (0-based) — espelham os mnemônicos do master
-var CLI = { ID:0, TEL:1, NOME:2, ABREV:3, ULTIMO_AG:4, TOTAL:5, INTERVALO:6, NASC:7, ULTIMO_LEM:8, EMAIL:9 };
-var AG  = { ID:0, NOME:1, ABREV:2, TEL:3, CLI_ID:4, SERV:5, DUR:6, DATA:7, HORA:8, PRECO:9, STATUS:10, CRIADO:11, SINAL:12, BARBEIRO:13 };
+var CLI = { ID:0, TEL:1, NOME:2, ABREV:3, ULTIMO_AG:4, TOTAL:5, INTERVALO:6, NASC:7, ULTIMO_LEM:8, EMAIL:9, DEP:10, FOTO:11 };
+var AG  = { ID:0, NOME:1, ABREV:2, TEL:3, CLI_ID:4, SERV:5, DUR:6, DATA:7, HORA:8, PRECO:9, STATUS:10, CRIADO:11, SINAL:12, BARBEIRO:13, PARA:14, OBS:15 };
 var MP_ = { ID:0, TS:1, TIPO:2, DESTINO:3, CONTEUDO:4, TENTATIVAS:5, ERRO:6, STATUS:7 };
 
 var STATUS = { CONFIRMADO:'confirmado', PRESENCA:'presenca_confirmada', CANCELADO:'cancelado', FALTOU:'faltou', REALIZADO:'realizado', AGUARDANDO:'aguardando_sinal' };
@@ -99,6 +102,50 @@ function defaultConfig_() {
   };
 }
 
+// PÚBLICA: rode UMA vez no editor (seletor Executar) para carregar os DADOS REAIS
+// (P0-6). Sobrescreve a config de demonstração: endereço/telefone reais, 19 serviços
+// com preços/durações corretos, e fechado Domingo E Segunda. Pode rodar de novo sem problema.
+function seedDadosReais() {
+  var cfg = {
+    barbearia: { nome:'AQUINO | Barbearia & Estética', cidade:'Ipatinga · MG', endereco:'R. Carlos Gomes, 256 — Ideal, Ipatinga/MG, CEP 35162-165', telefone:'(31) 98698-8939', logoUrl:'' },
+    servicos: [
+      { id:1,  nome:'Corte', preco:40, duracao:60, ativo:true },
+      { id:2,  nome:'Barba (navalha + toalha quente)', preco:35, duracao:35, ativo:true },
+      { id:3,  nome:'Acabamento (pescoço e entorno)', preco:15, duracao:15, ativo:true },
+      { id:4,  nome:'Sobrancelha Navalha', preco:15, duracao:15, ativo:true },
+      { id:5,  nome:'Sobrancelha Pinça', preco:35, duracao:45, ativo:true },
+      { id:6,  nome:'Corte e Barba', preco:65, duracao:90, ativo:true },
+      { id:7,  nome:'Corte + Barba + Sobrancelha Navalha', preco:75, duracao:105, ativo:true },
+      { id:8,  nome:'Corte e Sobrancelha', preco:50, duracao:75, ativo:true },
+      { id:9,  nome:'Barba + Sobrancelha + Acabamento', preco:55, duracao:45, ativo:true },
+      { id:10, nome:'Barba + Sobrancelha ou Acabamento', preco:45, duracao:40, ativo:true },
+      { id:11, nome:'Relaxamento (a partir de)', preco:40, duracao:30, ativo:true },
+      { id:12, nome:'Hidratação (a partir de)', preco:35, duracao:45, ativo:true },
+      { id:13, nome:'Corte e Relaxamento (a partir de R$ 70)', preco:75, duracao:90, ativo:true },
+      { id:14, nome:'Barboterapia (sob consulta)', preco:0, duracao:60, ativo:false },
+      { id:15, nome:'Botox Capilar (sob consulta)', preco:0, duracao:120, ativo:false },
+      { id:16, nome:'Selagem (sob consulta)', preco:0, duracao:180, ativo:false },
+      { id:17, nome:'Barba e Botox (sob consulta)', preco:0, duracao:120, ativo:false },
+      { id:18, nome:'Corte e Botox (sob consulta)', preco:0, duracao:180, ativo:false },
+      { id:19, nome:'Corte e Selagem (sob consulta)', preco:0, duracao:240, ativo:false }
+    ],
+    horarios: [
+      { dia:'Segunda', abre:'—',     fecha:'—',     fechado:true  },
+      { dia:'Terça',   abre:'08:00', fecha:'19:00', fechado:false },
+      { dia:'Quarta',  abre:'08:00', fecha:'19:00', fechado:false },
+      { dia:'Quinta',  abre:'08:00', fecha:'19:00', fechado:false },
+      { dia:'Sexta',   abre:'08:00', fecha:'19:00', fechado:false },
+      { dia:'Sábado',  abre:'08:00', fecha:'19:00', fechado:false },
+      { dia:'Domingo', abre:'—',     fecha:'—',     fechado:true  }
+    ],
+    operacao: { slotMin:15, antecedencia:60, sinalPct:30, cancelamentoH:12, intervaloRetornoDias:15 },
+    barbeiros: [ { id:1, nome:'Vinícius Aquino', ativo:true } ]
+  };
+  var r = actionSalvarConfig_({ config: cfg });
+  Logger.log('Dados reais carregados (P0-6). ' + JSON.stringify(r));
+  return r;
+}
+
 // ─── ROTEADOR doGet ─────────────────────────────────────────────────────────
 function doGet(e) {
   try {
@@ -155,6 +202,8 @@ function doPost(e) {
       case 'confirmarPresenca':return json_(actionConfirmarPresenca_(body));
       case 'registrarFila':    return json_(actionRegistrarFila_(body));
       case 'reagendar':        return json_(actionReagendar_(body));
+      case 'atualizarPerfil':  return json_(actionAtualizarPerfil_(body));
+      case 'uploadFoto':       return json_(actionUploadFoto_(body));
       case 'enviarLembrete':   return json_(actionEnviarLembrete_(body));
       case 'enviarSinal':      return json_(actionEnviarSinal_(body));
       // ADMIN / RBAC — exigem perfil autorizado (admin · recepcao · barbeiro)
@@ -269,13 +318,100 @@ function actionVerificarCliente_(p) {
   return {
     encontrado:true,
     clienteID:o[CLI.ID], nome:o[CLI.NOME], nomeAbreviado:o[CLI.ABREV],
-    nascimento:o[CLI.NASC], totalVisitas:Number(o[CLI.TOTAL])||0,
+    nascimento:o[CLI.NASC], email:o[CLI.EMAIL], dependentes:parseDependentes_(o[CLI.DEP]), foto:o[CLI.FOTO]||'', totalVisitas:Number(o[CLI.TOTAL])||0,
     ultimaVisita:dataBR_(o[CLI.ULTIMO_AG]), diasDesde:diasDesde_(o[CLI.ULTIMO_AG]),
     intervaloDias:Number(o[CLI.INTERVALO])||15,
     score:cls.score, nivel:cls.nivel, nivelEmoji:cls.nivelEmoji,
     status:cls.statusLabel, statusLabel:cls.statusLabel, statusCor:cls.statusCor,
     cancelamentos:contarCancelamentos_(o[CLI.ID]),
   };
+}
+
+// ─── ATUALIZAR PERFIL DO CLIENTE (R2 estendido / Fatia A) ───────────────────
+// O próprio cliente pode atualizar Nome, Sobrenome, Data de nascimento e Email
+// na tela de perfil do portal. Todos obrigatórios. Telefone NÃO muda (chave).
+// O backend grava Nome como "${nome} ${sobrenome}" (a coluna é única) e atualiza
+// NomeAbreviado, Nascimento e Email. Retorna o cliente atualizado.
+function actionAtualizarPerfil_(p) {
+  var tel = telLimpo_(p.tel || p.telefone);
+  var nome = String(p.nome || '').trim();
+  var sobrenome = String(p.sobrenome || '').trim();
+  var nascimento = String(p.nascimento || '').trim(); // DD/MM/AAAA
+  var email = String(p.email || '').trim();
+
+  if (!tel) return respostaErro_('telefone_invalido');
+  if (!nome || !sobrenome) return respostaErro_('nome_invalido');
+  if (!/^\d{2}\/\d{2}\/\d{4}$/.test(nascimento)) return respostaErro_('nascimento_invalido');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return respostaErro_('email_invalido');
+
+  var r = findClienteByTel_(tel);
+  if (!r) return respostaErro_('cliente_nao_encontrado');
+
+  var nomeCompleto = sanitizar_(nome + ' ' + sobrenome);
+  var abrev = sanitizar_(formatarNomeAbrev_(nomeCompleto));
+  var depJSON = serializarDependentes_(p.dependentes); // [] → '' (limpa) | lista válida
+  var sh = sheet_(SHEETS.CLIENTES);
+  // Atualiza as 4 colunas do perfil + dependentes (1-indexed em getRange)
+  sh.getRange(r.rowIndex, CLI.NOME + 1).setValue(nomeCompleto);
+  sh.getRange(r.rowIndex, CLI.ABREV + 1).setValue(abrev);
+  sh.getRange(r.rowIndex, CLI.NASC + 1).setValue(nascimento);
+  sh.getRange(r.rowIndex, CLI.EMAIL + 1).setValue(sanitizar_(email));
+  sh.getRange(r.rowIndex, CLI.DEP + 1).setValue(depJSON);
+  if (typeof p.foto === 'string' && p.foto) sh.getRange(r.rowIndex, CLI.FOTO + 1).setValue(p.foto);
+
+  return {
+    success: true,
+    cliente: {
+      clienteID: r.obj[CLI.ID],
+      nome: nomeCompleto,
+      nomeAbreviado: abrev,
+      nascimento: nascimento,
+      email: email,
+      dependentes: parseDependentes_(depJSON),
+      foto: (typeof p.foto === 'string' && p.foto) ? p.foto : (r.obj[CLI.FOTO] || ''),
+    }
+  };
+}
+
+// ─── FOTO DO CLIENTE (Google Drive) ─────────────────────────────────────────
+// O app reduz a foto p/ ~512px antes de enviar (data URL base64). Aqui ela é
+// salva numa pasta do Drive do dono e devolvemos um link exibível em <img>.
+function actionUploadFoto_(b) {
+  var dataUrl = String(b.imagem || '');
+  var m = dataUrl.match(/^data:(image\/[\w+.-]+);base64,([\s\S]+)$/);
+  if (!m) return respostaErro_('imagem_invalida');
+  try {
+    var contentType = m[1];
+    var bytes = Utilities.base64Decode(m[2]);
+    var ext = (contentType.split('/')[1] || 'jpg').replace('jpeg','jpg');
+    var blob = Utilities.newBlob(bytes, contentType, 'cliente_' + Date.now() + '.' + ext);
+    var folder = getPastaFotos_();
+    var file = folder.createFile(blob);
+    try { file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch (e) {}
+    var id = file.getId();
+    var url = 'https://drive.google.com/thumbnail?id=' + id + '&sz=w512';
+    return { success:true, url:url, fileId:id };
+  } catch (err) {
+    logErro_('uploadFoto', err);
+    return respostaErro_('falha_upload');
+  }
+}
+// Pasta única no Drive (id guardado em Script Property p/ não procurar toda vez)
+function getPastaFotos_() {
+  var p = props_();
+  var fid = p.getProperty('FOTOS_FOLDER_ID');
+  if (fid) { try { return DriveApp.getFolderById(fid); } catch (e) {} }
+  var folder = DriveApp.createFolder('AQUINO_FotosClientes');
+  p.setProperty('FOTOS_FOLDER_ID', folder.getId());
+  return folder;
+}
+
+// PÚBLICA: rode UMA vez no editor (seletor Executar) para autorizar o Drive e
+// criar a pasta de fotos. Não termina com "_", então aparece na lista de funções.
+function autorizarDriveFotos() {
+  var pasta = getPastaFotos_();
+  Logger.log('Drive OK. Pasta de fotos: ' + pasta.getName() + ' — ' + pasta.getUrl());
+  return pasta.getUrl();
 }
 
 function actionSlots_(p) {
@@ -304,7 +440,7 @@ function actionMeusAgendamentos_(p) {
   var tel = telLimpo_(p.tel);
   var ags = getAgendamentos_()
     .filter(function(a){ return telLimpo_(a[AG.TEL]) === tel && (a[AG.STATUS] === STATUS.CONFIRMADO || a[AG.STATUS] === STATUS.PRESENCA); })
-    .map(function(a){ return { id:a[AG.ID], servico:a[AG.SERV], duracao:Number(a[AG.DUR])||0, data:a[AG.DATA], horario:a[AG.HORA], preco:Number(a[AG.PRECO])||0, dataBR:dataBR_(a[AG.DATA]) }; });
+    .map(function(a){ return { id:a[AG.ID], servico:a[AG.SERV], duracao:Number(a[AG.DUR])||0, data:a[AG.DATA], horario:a[AG.HORA], preco:Number(a[AG.PRECO])||0, dataBR:dataBR_(a[AG.DATA]), para:a[AG.PARA]||'' }; });
   return { agendamentos: ags };
 }
 
@@ -325,16 +461,24 @@ function actionAgendamento_(b) {
   var servico = servObj ? (servObj.nome || '') : (b.servico || '');
   var duracao = parseInt(servObj ? servObj.duracao : b.duracao, 10) || 45;
   var preco   = parseFloat(servObj ? servObj.preco : (b.preco || b.valor)) || 0;
+  var observacao = sanitizar_(String(b.observacao || '')).slice(0, 280); // P0-5: pedido especial do cliente
   if (!nome || !tel || !data || !horario || !servico) return respostaErro_('dados_invalidos');
 
-  // conflito de horário
-  var conflito = getAgendamentos_().some(function(a){ return a[AG.DATA]===data && a[AG.HORA]===horario && a[AG.STATUS]!==STATUS.CANCELADO; });
+  // conflito de horário — sobreposição REAL por duração (P0-2). Ocupa: confirmado/presença/realizado/aguardando_sinal. Ignora: cancelado/faltou.
+  var tNova = toMin_(horario), durNova = duracao;
+  var conflito = getAgendamentos_().some(function(a){
+    if (a[AG.DATA] !== data) return false;
+    if (a[AG.STATUS] === STATUS.CANCELADO || a[AG.STATUS] === STATUS.FALTOU) return false;
+    var tEx = toMin_(a[AG.HORA]), dEx = Number(a[AG.DUR]) || 45;
+    return tNova < (tEx + dEx) && (tNova + durNova) > tEx;
+  });
   if (conflito) return { success:false, error:'Horário não disponível' };
 
-  var cli = upsertCliente_(nome, tel, data, b.nascimento, b.clienteID, b.intervaloDias, b.email);
+  var cli = upsertCliente_(nome, tel, data, b.nascimento, b.clienteID, b.intervaloDias, b.email, serializarDependentes_(b.dependentes), b.foto);
   var id = gerarIdAgendamento_();
   var abrev = formatarNomeAbrev_(nome);
   var barbeiro = sanitizar_(String(b.barbeiro || '').trim()); // profissional escolhido (col N)
+  var para = sanitizar_(String(b.para || '').trim()).slice(0,60); // dependente (col O), vazio = titular
   var ag = { id:id, data:data, horario:horario, servico:servico, duracao:duracao, preco:preco };
   var clienteObj = findClienteByTel_(tel);
   var exigeSinal = deveExigirSinal_(clienteObj ? clienteObj.obj : null, ag);
@@ -343,7 +487,7 @@ function actionAgendamento_(b) {
   var sinalStatus = exigeSinal ? 'pendente' : '';
   sheet_(SHEETS.AGENDAMENTOS).appendRow([
     id, sanitizar_(nome), sanitizar_(abrev), tel, cli.id, sanitizar_(servico),
-    duracao, data, horario, preco, statusInicial, nowISO_(), sinalStatus, barbeiro,
+    duracao, data, horario, preco, statusInicial, nowISO_(), sinalStatus, barbeiro, para, observacao,
   ]);
 
   if (exigeSinal) {
@@ -360,7 +504,7 @@ function actionAgendamento_(b) {
   criarEventoCalendar_(id, data, horario, duracao, nome, servico, tel, b.email);
   enviarConfirmacaoWhatsApp_(tel, nome, servico, data, horario, duracao, preco);
   enviarEmailConfirmacao_(b.email, nome, servico, data, horario, duracao, preco); // SEÇÃO 32 (no-op se EMAIL_ATIVO=0)
-  notificarDonoNovoAgendamento_(nome, servico, data, horario);
+  notificarDonoNovoAgendamento_(nome, servico, data, horario, para);
   registrarMetrica_('agendamento_criado', 1, { servico:servico, canal:'site', preco:preco });
   var resOk = { success:true, id:id, clienteID:cli.id, requiresSinal:false };
   if (b.requestId) cacheReq.put('req_' + b.requestId, JSON.stringify(resOk), 21600);
@@ -406,10 +550,37 @@ function actionReagendar_(b) {
   var data = novo.data || b.data, hora = novo.hora || b.horario || b.hora;
   var r = findRow_(SHEETS.AGENDAMENTOS, AG.ID, id);
   if (!r) return { success:false, error:'Agendamento não encontrado' };
+
+  // dados do agendamento atual (para checar conflito e recriar o evento no Calendar)
+  var dataFinal = data || r.obj[AG.DATA];
+  var horaFinal = hora || r.obj[AG.HORA];
+  var nome    = r.obj[AG.NOME];
+  var servico = r.obj[AG.SERV];
+  var duracao = Number(r.obj[AG.DUR]) || 45;
+  var tel     = r.obj[AG.TEL];
+
+  // P0-3: conflito por DURAÇÃO no novo horário (mesma regra do P0-2), ignorando ele mesmo.
+  var tNova = toMin_(horaFinal), durNova = duracao;
+  var conflito = getAgendamentos_().some(function(a){
+    if (String(a[AG.ID]) === String(id)) return false; // não conflita consigo mesmo
+    if (a[AG.DATA] !== dataFinal) return false;
+    if (a[AG.STATUS] === STATUS.CANCELADO || a[AG.STATUS] === STATUS.FALTOU) return false;
+    var tEx = toMin_(a[AG.HORA]), dEx = Number(a[AG.DUR]) || 45;
+    return tNova < (tEx + dEx) && (tNova + durNova) > tEx;
+  });
+  if (conflito) return { success:false, error:'Horário não disponível' };
+
+  // remove o evento antigo do Calendar ANTES de gravar (o fallback do remover lê a linha antiga)
+  removerEventoCalendar_(id);
+
   if (data) setCell_(SHEETS.AGENDAMENTOS, r.rowIndex, AG.DATA, data);
   if (hora) setCell_(SHEETS.AGENDAMENTOS, r.rowIndex, AG.HORA, hora);
   setCell_(SHEETS.AGENDAMENTOS, r.rowIndex, AG.STATUS, STATUS.CONFIRMADO);
-  return { success:true, id:id, data:data, horario:hora };
+
+  // cria o evento no novo horário
+  criarEventoCalendar_(id, dataFinal, horaFinal, duracao, nome, servico, tel, b.email || '');
+
+  return { success:true, id:id, data:dataFinal, horario:horaFinal };
 }
 
 // anti-spam: grava UltimoLembrete (col I) — NUNCA UltimoAgendamento (col E)
@@ -454,7 +625,7 @@ function actionDashboard_(perfil) {
     permissoes: { editarConfig: perfil==='admin', verMetricas: perfil!=='barbeiro', editarServicos: perfil==='admin' },
     clientes: clientes, // front (MUDANÇA 1): if (d.clientes) setAdminAuth(true)
     kpis: { agendamentosHoje:doDia.length, confirmados:doDia.filter(function(a){return a[AG.STATUS]===STATUS.CONFIRMADO;}).length, faturadoHoje:faturadoHoje, totalClientes:clientes.length },
-    agenda: doDia.map(function(a){ return { id:a[AG.ID], horario:a[AG.HORA], nome:a[AG.NOME], servico:a[AG.SERV], status:a[AG.STATUS], preco:Number(a[AG.PRECO])||0 }; }),
+    agenda: doDia.map(function(a){ return { id:a[AG.ID], horario:a[AG.HORA], nome:a[AG.NOME], servico:a[AG.SERV], status:a[AG.STATUS], preco:Number(a[AG.PRECO])||0, obs:a[AG.OBS]||'' }; }),
   };
 }
 
@@ -1055,6 +1226,20 @@ function verificarReativacao() {
       setCell_(SHEETS.CLIENTES, rowIndex, CLI.ULTIMO_LEM, hoje + '_aniv');
       return;
     }
+    // aniversário de DEPENDENTE (filho) — felicita no WhatsApp do responsável.
+    // Marca anti-spam por dependente: UltimoLembrete = "<hoje>_anivdep_<nome>".
+    var deps = parseDependentes_(c[CLI.DEP]);
+    for (var di = 0; di < deps.length; di++) {
+      var dnasc = String(deps[di].nascimento || '');
+      var dddmm = dnasc.split('/').slice(0,2).join('/');
+      var marca = hoje + '_anivdep_' + deps[di].nome;
+      if (dddmm && dddmm === hojeBR && c[CLI.ULTIMO_LEM] !== marca) {
+        var primeiroDep = String(deps[di].nome).split(/\s+/)[0];
+        enviarWhatsApp_(c[CLI.TEL], '🎂 Hoje é aniversário do(a) ' + primeiroDep + '! Que tal comemorar com um corte caprichado? ' + linkAgendamento_());
+        setCell_(SHEETS.CLIENTES, rowIndex, CLI.ULTIMO_LEM, marca);
+        return;
+      }
+    }
     // reativação por intervalo
     var dias = diasDesde_(c[CLI.ULTIMO_AG]);
     var intervalo = Number(c[CLI.INTERVALO]) || 15;
@@ -1237,9 +1422,10 @@ function processarWebhookMP_(e, body) {
 }
 
 // Notifica o dono (SAC_NUMERO) sobre novo agendamento
-function notificarDonoNovoAgendamento_(nome, servico, data, horario) {
+function notificarDonoNovoAgendamento_(nome, servico, data, horario, para) {
   var dono = telLimpo_(getSecret_(PROP.SAC_NUMERO)); if (!dono) return;
-  enviarWhatsApp_(dono, '📅 Novo agendamento: ' + nome + ' — ' + servico + ' em ' + dataBR_(data) + ' às ' + horario);
+  var quem = (para && String(para).trim()) ? (nome + ' (p/ ' + String(para).trim() + ')') : nome;
+  enviarWhatsApp_(dono, '📅 Novo agendamento: ' + quem + ' — ' + servico + ' em ' + dataBR_(data) + ' às ' + horario);
 }
 
 
@@ -1485,7 +1671,7 @@ function sincronizarServicos_(servicos) {
 function nextServicoId_(servicos) { return servicos.reduce(function(m,s){ return Math.max(m, s.id||0); }, 0) + 1; }
 
 // ─── CLIENTES ────────────────────────────────────────────────────────────────
-function upsertCliente_(nome, tel, dataAg, nascimento, clienteIDHint, intervaloHint, email) {
+function upsertCliente_(nome, tel, dataAg, nascimento, clienteIDHint, intervaloHint, email, dependentesJSON, foto) {
   var r = findClienteByTel_(tel);
   var intervalo = validarIntervalo_(intervaloHint);
   if (r) {
@@ -1493,13 +1679,14 @@ function upsertCliente_(nome, tel, dataAg, nascimento, clienteIDHint, intervaloH
     setCell_(SHEETS.CLIENTES, r.rowIndex, CLI.TOTAL, novoTotal);
     setCell_(SHEETS.CLIENTES, r.rowIndex, CLI.ULTIMO_AG, dataAg); // col E real — nunca lembrete
     if (email && validarEmail_(email) && !r.obj[CLI.EMAIL]) setCell_(SHEETS.CLIENTES, r.rowIndex, CLI.EMAIL, email);
+    if (foto) setCell_(SHEETS.CLIENTES, r.rowIndex, CLI.FOTO, foto); // atualiza foto se enviada
     verificarMarcosFidelidade_(r.obj[CLI.ID], tel, r.obj[CLI.NOME] || nome, novoTotal); // Item 3
     return { id: r.obj[CLI.ID], novo:false, total:novoTotal };
   }
   var id = (clienteIDHint && /^CLI-\d+$/.test(clienteIDHint)) ? clienteIDHint : gerarClienteId_();
   sheet_(SHEETS.CLIENTES).appendRow([
     id, tel, sanitizar_(nome), sanitizar_(formatarNomeAbrev_(nome)), dataAg, 1, intervalo, sanitizar_(nascimento||''), '',
-    (email && validarEmail_(email)) ? email : '',
+    (email && validarEmail_(email)) ? email : '', dependentesJSON || '', String(foto||''),
   ]);
   return { id:id, novo:true, total:1 };
 }
@@ -1538,6 +1725,32 @@ function formatarNomeAbrev_(nome) {
   var p = String(nome||'').trim().split(/\s+/);
   if (p.length < 2) return p[0] || '';
   return p[0] + ' ' + p[p.length-1].charAt(0).toUpperCase() + '.';
+}
+
+// ─── DEPENDENTES (filhos/responsável) ───────────────────────────────────────
+// Guardados como JSON na coluna CLI.DEP: [{ "nome":"João", "nascimento":"15/03/2018" }].
+// parse tolera vazio/corrompido (devolve []). serializa valida e limita a 12.
+function parseDependentes_(raw) {
+  if (!raw) return [];
+  try {
+    var arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .filter(function(d){ return d && d.nome; })
+      .map(function(d){ return { nome:String(d.nome).trim(), nascimento:String(d.nascimento||'').trim() }; });
+  } catch (e) { return []; }
+}
+function serializarDependentes_(arr) {
+  if (!Array.isArray(arr)) return '';
+  var limpos = arr
+    .filter(function(d){ return d && String(d.nome||'').trim(); })
+    .slice(0, 12)
+    .map(function(d){
+      var nasc = String(d.nascimento||'').trim();
+      if (!/^\d{2}\/\d{2}\/\d{4}$/.test(nasc)) nasc = ''; // só aceita DD/MM/AAAA
+      return { nome: sanitizar_(String(d.nome).trim()).slice(0,60), nascimento: nasc };
+    });
+  return limpos.length ? JSON.stringify(limpos) : '';
 }
 
 // ─── FINANCEIRO (schema canônico 9 colunas) ─────────────────────────────────
@@ -1610,14 +1823,77 @@ function setupSheets() {
   sincronizarServicos_(defaultConfig_().servicos);
   Logger.log('Abas criadas: ' + Object.keys(SHEETS).map(function(k){return SHEETS[k];}).join(', '));
 }
+function verificarSinalExpirado() {
+  // SPEC 3.5 / §8 — sinal não pago em 30min: cancela, libera o slot, avisa o cliente e chama a fila.
+  var agora = Date.now();
+  var LIMITE_MS = 30 * 60000; // 30 minutos
+  getRowsData_(SHEETS.AGENDAMENTOS).forEach(function(a, i){
+    if (a[AG.STATUS] !== STATUS.AGUARDANDO) return;
+    var criado = a[AG.CRIADO] ? new Date(a[AG.CRIADO]).getTime() : 0;
+    if (!criado || (agora - criado) < LIMITE_MS) return;
+    setCell_(SHEETS.AGENDAMENTOS, i + 2, AG.STATUS, STATUS.CANCELADO);
+    removerEventoCalendar_(a[AG.ID]);              // libera o slot (se houver evento)
+    verificarFilaEspera_(a[AG.DATA], a[AG.HORA]);  // notifica o 1º da fila
+    var tel = telLimpo_(a[AG.TEL]);
+    if (tel) enviarWhatsApp_(tel, 'Olá! Sua reserva de ' + a[AG.SERV] + ' em ' + dataBR_(a[AG.DATA]) + ' às ' + a[AG.HORA] + ' foi cancelada porque o sinal não foi pago em 30 minutos. O horário já foi liberado — se ainda quiser, é só agendar de novo. 💈');
+  });
+}
+
 function criarTriggers() {
   ScriptApp.getProjectTriggers().forEach(function(t){ ScriptApp.deleteTrigger(t); });
   ScriptApp.newTrigger('verificarLembretes').timeBased().everyHours(1).create();
+  ScriptApp.newTrigger('verificarFeedback').timeBased().everyHours(1).create(); // P0-1: marca realizado + dispara NPS
   ScriptApp.newTrigger('registrarFaltas').timeBased().atHour(12).everyDays(1).create();
   ScriptApp.newTrigger('verificarLembrete5Dias').timeBased().atHour(9).everyDays(1).create();
   ScriptApp.newTrigger('verificarReativacao').timeBased().atHour(10).everyDays(1).create();
   ScriptApp.newTrigger('verificarFilaExpirada').timeBased().everyMinutes(5).create();
+  ScriptApp.newTrigger('verificarSinalExpirado').timeBased().everyMinutes(5).create(); // P0-4: cancela aguardando_sinal nao pago em 30min
   ScriptApp.newTrigger('reenviarPendentes').timeBased().everyMinutes(30).create(); // robustez (SEÇÃO 39)
   ScriptApp.newTrigger('backupSemanal').timeBased().onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(3).create(); // backup Drive
   Logger.log('Triggers criados.');
 }
+
+function repararContagens() {
+  var shC = sheet_(SHEETS.CLIENTES);
+  var ags = getAgendamentos_(); // linhas de dados (sem cabeçalho)
+
+  // Conta agendamentos NÃO cancelados, por ClienteID e por telefone
+  var porCli = {}, porTel = {};
+  ags.forEach(function (a) {
+    if (a[AG.STATUS] === STATUS.CANCELADO) return;
+    var cid = a[AG.CLI_ID];
+    if (cid) porCli[cid] = (porCli[cid] || 0) + 1;
+    var tel = telLimpo_(a[AG.TEL]);
+    if (tel) porTel[tel] = (porTel[tel] || 0) + 1;
+  });
+
+  var dados = shC.getDataRange().getValues(); // inclui a linha de cabeçalho (índice 0)
+  var corrigidos = 0;
+  var detalhes = [];
+
+  for (var i = 1; i < dados.length; i++) {
+    var row = dados[i];
+    if (!row[CLI.ID]) continue; // pula linhas vazias
+
+    var cid = row[CLI.ID];
+    var tel = telLimpo_(row[CLI.TEL]);
+    var correto = (porCli[cid] != null) ? porCli[cid] : (porTel[tel] || 0);
+
+    var atual = row[CLI.TOTAL];
+    var atualEhInteiroSao = (typeof atual === 'number' && isFinite(atual) &&
+                             atual >= 0 && atual <= 5000 && Math.floor(atual) === atual);
+
+    // Só reescreve se o valor atual estiver errado/corrompido
+    if (!atualEhInteiroSao || atual !== correto) {
+      shC.getRange(i + 1, CLI.TOTAL + 1).setValue(correto);
+      corrigidos++;
+      detalhes.push(cid + ' (' + tel + '): ' + JSON.stringify(atual) + '  ->  ' + correto);
+    }
+  }
+
+  Logger.log('✅ Clientes corrigidos: ' + corrigidos);
+  detalhes.forEach(function (l) { Logger.log(l); });
+  return { corrigidos: corrigidos, detalhes: detalhes };
+}
+
+
