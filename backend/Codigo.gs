@@ -613,11 +613,27 @@ function actionDashboard_(perfil) {
   var doDia = ags.filter(function(a){ return a[AG.DATA] === hoje; });
   var faturadoHoje = doDia.filter(function(a){ return a[AG.STATUS]===STATUS.REALIZADO; })
                           .reduce(function(s,a){ return s + (Number(a[AG.PRECO])||0); }, 0);
+  // F.4: índice por cliente → gasto acumulado, próximo agendamento e histórico (visíveis no admin)
+  var porCliente_ = {};
+  ags.forEach(function(a){ var cid = a[AG.CLI_ID]; if (cid==null||cid==='') return; (porCliente_[cid] = porCliente_[cid] || []).push(a); });
+  var gastoDe_ = function(cid){ return (porCliente_[cid]||[]).filter(function(a){ return a[AG.STATUS]===STATUS.REALIZADO; }).reduce(function(s,a){ return s + (Number(a[AG.PRECO])||0); }, 0); };
+  var proximoDe_ = function(cid){
+    var fut = (porCliente_[cid]||[]).filter(function(a){ return a[AG.DATA] >= hoje && (a[AG.STATUS]===STATUS.CONFIRMADO || a[AG.STATUS]===STATUS.PRESENCA || a[AG.STATUS]===STATUS.AGUARDANDO); })
+      .sort(function(a,b){ return (a[AG.DATA]+a[AG.HORA]) < (b[AG.DATA]+b[AG.HORA]) ? -1 : 1; });
+    return fut.length ? { data:fut[0][AG.DATA], horario:fut[0][AG.HORA], servico:fut[0][AG.SERV] } : null;
+  };
+  var historicoDe_ = function(cid){
+    return (porCliente_[cid]||[]).filter(function(a){ return a[AG.STATUS]===STATUS.REALIZADO || a[AG.STATUS]===STATUS.FALTOU; })
+      .sort(function(a,b){ return (a[AG.DATA]+a[AG.HORA]) < (b[AG.DATA]+b[AG.HORA]) ? 1 : -1; })
+      .slice(0,20)
+      .map(function(a){ return { data:a[AG.DATA], horario:a[AG.HORA], servico:a[AG.SERV], preco:Number(a[AG.PRECO])||0, status:a[AG.STATUS] }; });
+  };
   var clientes = getClientes_().map(function(c){
     var cls = classificarCliente_(c[CLI.ID]);
     return { clienteID:c[CLI.ID], nome:c[CLI.NOME], telefone:c[CLI.TEL], totalVisitas:Number(c[CLI.TOTAL])||0,
              ultimoAgendamento:c[CLI.ULTIMO_AG], ultimoLembrete:c[CLI.ULTIMO_LEM], intervaloDias:Number(c[CLI.INTERVALO])||15, diasDesde:diasDesde_(c[CLI.ULTIMO_AG]),
-             score:cls.score, nivel:cls.nivel, nivelEmoji:cls.nivelEmoji, status:cls.statusLabel, statusCor:cls.statusCor, risco:shouldFlagRisk_(c[CLI.ID]), cancelamentos:contarCancelamentos_(c[CLI.ID]) };
+             score:cls.score, nivel:cls.nivel, nivelEmoji:cls.nivelEmoji, status:cls.statusLabel, statusCor:cls.statusCor, risco:shouldFlagRisk_(c[CLI.ID]), cancelamentos:contarCancelamentos_(c[CLI.ID]),
+             gasto:gastoDe_(c[CLI.ID]), proximo:proximoDe_(c[CLI.ID]), historico:historicoDe_(c[CLI.ID]) };
   }).sort(function(a,b){ return a.score - b.score; }); // piores primeiro (ação imediata)
   return {
     success:true, autenticado:true,
@@ -625,7 +641,7 @@ function actionDashboard_(perfil) {
     permissoes: { editarConfig: perfil==='admin', verMetricas: perfil!=='barbeiro', editarServicos: perfil==='admin' },
     clientes: clientes, // front (MUDANÇA 1): if (d.clientes) setAdminAuth(true)
     kpis: { agendamentosHoje:doDia.length, confirmados:doDia.filter(function(a){return a[AG.STATUS]===STATUS.CONFIRMADO;}).length, faturadoHoje:faturadoHoje, totalClientes:clientes.length },
-    agenda: doDia.map(function(a){ return { id:a[AG.ID], horario:a[AG.HORA], nome:a[AG.NOME], servico:a[AG.SERV], status:a[AG.STATUS], preco:Number(a[AG.PRECO])||0, obs:a[AG.OBS]||'' }; }),
+    agenda: doDia.map(function(a){ return { id:a[AG.ID], clienteId:a[AG.CLI_ID]||null, horario:a[AG.HORA], nome:a[AG.NOME], servico:a[AG.SERV], status:a[AG.STATUS], preco:Number(a[AG.PRECO])||0, obs:a[AG.OBS]||'' }; }),
   };
 }
 
@@ -1895,5 +1911,3 @@ function repararContagens() {
   detalhes.forEach(function (l) { Logger.log(l); });
   return { corrigidos: corrigidos, detalhes: detalhes };
 }
-
-
