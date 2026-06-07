@@ -88,6 +88,8 @@ const api = {
   cancelar: (agendamentoId, tel) => api._post({ action: "cancelar", agendamentoId, tel }),
   // salvarConfig: payload EXATO aceito pelo GAS (Script Properties)
   salvarConfig: (key, config) => api._post({ action: "salvarConfig", key, config }),
+  // P1-1: lê a config rica do backend (fonte da verdade do portal) p/ o painel abrir sincronizado
+  getConfig: () => api._get({ action: "getConfig" }),
   // extensões de contrato (degradam p/ modo demo sem backend):
   reagendar:     (agendamentoId, novoHorario, tel) => api._post({ action: "reagendar", agendamentoId, novoHorario, tel }),
   enviarLembrete:(tel, clienteId) => api._post({ action: "enviarLembrete", tel, clienteId }),
@@ -3290,6 +3292,20 @@ const ConfigPage = () => {
   const toast = useToast();
   const cfg = useStore(configStore);
   const [tab, setTab] = useState("servicos");
+  // P1-1: ao abrir o painel, puxa a config rica do backend (serviços/barbeiros/barbearia/horários)
+  // para o dono editar a FONTE REAL que o portal lê — não mais só o estado do navegador.
+  useEffect(() => {
+    if (!ENV.hasBackend) return;
+    let vivo = true;
+    api.getConfig().then(r => {
+      const c = r && (r.config || null);
+      if (vivo && c && typeof c === "object") {
+        configStore.set(prev => ({ ...prev, ...c,
+          fidelidade: { ...(prev.fidelidade||{}), ...(c.fidelidade||{}) } }));
+      }
+    }).catch(()=>{});
+    return () => { vivo = false; };
+  }, []);
   const tabs=[
     {id:"servicos",label:"Serviços & Preços"},
     {id:"barbeiros",label:"Barbeiros"},
@@ -3543,16 +3559,18 @@ const ConfigPage = () => {
           <div style={{marginTop:S.md,display:"flex",gap:8,justifyContent:"flex-end"}}>
             <Btn variant="secondary" size="sm" onClick={()=>{ configStore.set(DEFAULT_CONFIG); toast("Configurações restauradas ao padrão", A.amber, "warning"); }}>Restaurar padrão</Btn>
             <Btn size="sm" onClick={async()=>{
-              // Mapeia a UI para o payload EXATO aceito pelo GAS salvarConfig:
-              // { diasBloqueados:[weekday], horaInicio, horaFim, intervaloDias }
-              const wd = { "Domingo":0,"Segunda":1,"Terça":2,"Quarta":3,"Quinta":4,"Sexta":5,"Sábado":6 };
-              const abertos = cfg.horarios.filter(h=>!h.fechado);
-              const diasBloqueados = cfg.horarios.filter(h=>h.fechado).map(h=>wd[h.dia]);
-              const hh = (t)=>parseInt(String(t).split(":")[0],10);
-              const horaInicio = abertos.length? Math.min(...abertos.map(h=>hh(h.abre))) : 8;
-              const horaFim    = abertos.length? Math.max(...abertos.map(h=>hh(h.fecha))) : 19;
-              const intervaloDias = cfg.operacao.intervaloRetornoDias ?? 15;
-              const gasConfig = { diasBloqueados, horaInicio, horaFim, intervaloDias };
+              // P1-1: envia a CONFIG RICA (serviços, barbeiros, dados da barbearia e horário
+              // POR DIA). O backend (actionSalvarConfig_) detecta o shape rico, persiste em
+              // CONFIG_JSON e deriva os campos legados sozinho — assim o que o dono edita aqui
+              // CHEGA ao portal do cliente (que lê serviços/barbeiros do backend).
+              const gasConfig = {
+                barbearia:  cfg.barbearia,
+                servicos:   cfg.servicos,
+                barbeiros:  cfg.barbeiros || [],
+                horarios:   cfg.horarios,
+                operacao:   cfg.operacao,
+                fidelidade: cfg.fidelidade,
+              };
               if(!ENV.hasBackend){
                 toast("Salvo localmente (modo demonstração)", A.green, "check");
                 return;
@@ -3561,7 +3579,7 @@ const ConfigPage = () => {
               if(!key) { toast("Salvamento no backend cancelado", A.textSec, "warning"); return; }
               try {
                 const r = await api.salvarConfig(key, gasConfig);
-                toast(r&&r.success?"Configuração salva no GAS ✓":(r&&r.erro)||"GAS recusou a chave admin", r&&r.success?A.green:A.amber, r&&r.success?"check":"warning");
+                toast(r&&r.success?"Configuração salva no GAS ✓ (serviços, barbeiros e horários já valem no portal)":(r&&(r.error||r.erro))||"GAS recusou a chave admin", r&&r.success?A.green:A.amber, r&&r.success?"check":"warning");
               } catch(e){ toast("Falha de rede ao salvar no GAS", A.red, "warning"); }
             }}><Ico n="check" size={11} color="#fff"/>Salvar</Btn>
           </div>
@@ -4393,5 +4411,3 @@ export default function App() {
     </ToastProvider>
   );
 }
-
-
