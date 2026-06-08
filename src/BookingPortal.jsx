@@ -1010,6 +1010,7 @@ function Portal() {
   const [erro, setErro] = useState("");
   const [resultado, setResultado] = useState(null);
   const [aceito, setAceito] = useState(false);
+  const [filaMsg, setFilaMsg] = useState("");   // F.2: feedback do "avise-me se abrir vaga"
   const [legalModal, setLegalModal] = useState(null);
   // área do cliente
   const [meusAgs, setMeusAgs] = useState([]);
@@ -1646,8 +1647,26 @@ function Portal() {
         ) : loadingSlots ? (
           <div style={{textAlign:"center",color:T.muted,fontSize:13,padding:"30px 0"}}>{t("t3_buscando")}</div>
         ) : slots.length===0 ? (
-          <div style={{textAlign:"center",color:T.muted,fontSize:13,padding:"30px 0"}}>Sem horários livres neste dia. Tente outra data.</div>
+          <div style={{textAlign:"center",color:T.muted,fontSize:13,padding:"24px 0 8px"}}>
+            <div>Sem horários livres neste dia.</div>
+            {ENV.hasBackend && (
+              <button onClick={async ()=>{
+                setFilaMsg("");
+                try {
+                  const r = await api.registrarFila({ tel: numeroFinal(ddi, tel), data: isoDate(dataSel), horario: "qualquer", servico: servSel, flexibilidadeData: "mesmo_dia", nome: (clienteExistente && clienteExistente.nome) || nome });
+                  if (r && r._demo) setFilaMsg("Modo demonstração: fila simulada.");
+                  else if (r && r.success) setFilaMsg(r.mensagem || "Pronto! Avisamos por WhatsApp se abrir vaga neste dia. 🔔");
+                  else setFilaMsg((r && r.error) || "Não foi possível entrar na fila.");
+                } catch(e){ setFilaMsg("Falha de conexão. Tente de novo."); }
+              }} style={{marginTop:12,padding:"11px 18px",borderRadius:11,border:`1px solid ${T.brass}`,background:`${T.brass}1A`,color:T.brass,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:T.sans}}>
+                🔔 Avise-me se abrir vaga neste dia
+              </button>
+            )}
+            {filaMsg && <div style={{marginTop:10,color:T.ink,fontSize:12}}>{filaMsg}</div>}
+            <div style={{marginTop:8,color:T.muted,fontSize:11}}>Ou tente outra data.</div>
+          </div>
         ) : (
+
           <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8}}>
             {slots.map(h=>{
               const sel = horaSel===h;
