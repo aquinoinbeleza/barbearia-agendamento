@@ -57,6 +57,7 @@ const api = {
   reagendar:(agendamentoId, data, hora, tel) => api._post({ action: "reagendar", agendamentoId, novoHorario: { data, hora }, tel }),
   atualizarPerfil: (payload) => api._post({ action: "atualizarPerfil", ...payload }),
   uploadFoto: (imagem) => api._post({ action: "uploadFoto", imagem }),
+  registrarFila: (payload) => api._post({ action: "registrarFila", ...payload }),
 };
 
 // ─── DADOS DEMO (sem backend) ───────────────────────────────────────────
@@ -1072,6 +1073,11 @@ function Portal() {
     setErro(""); setVerificando(true);
     try {
       const r = await api.verificarCliente(limpo);
+      if (r && r.encontrado && r.bloqueado) {     // F.3: cliente bloqueado não agenda online
+        setVerificando(false);
+        setErro("Não foi possível concluir o agendamento online. Por favor, fale com a barbearia pelo WhatsApp para agendar. 💬");
+        return;
+      }
       if (r && r.encontrado) {
         const [pn, sn] = dividirNome(r.nome || "");
         setClienteExistente(r);
