@@ -1501,7 +1501,7 @@ function filaInteressados_(data, hora) {
   return getRowsData_(SHEETS.FILA_ESPERA).filter(function(f){
     if (f[FE.STATUS] !== FILA_STATUS.AGUARDANDO) return false;
     var flex = f[FE.FLEX] || 'mesmo_dia';
-    if (flex === 'mesmo_dia')    return f[FE.DATA] === data && f[FE.HORA] === hora;
+    if (flex === 'mesmo_dia')    return f[FE.DATA] === data; // F.2: qualquer horário liberado nesse dia conta
     if (flex === 'mesma_semana') return mesmaSemana_(f[FE.DATA], data);
     return true;
   });
