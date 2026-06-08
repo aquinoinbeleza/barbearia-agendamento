@@ -90,6 +90,9 @@ const api = {
   salvarConfig: (key, config) => api._post({ action: "salvarConfig", key, config }),
   // P1-1: lê a config rica do backend (fonte da verdade do portal) p/ o painel abrir sincronizado
   getConfig: () => api._get({ action: "getConfig" }),
+  // F.3 blacklist + F.2 leitura da fila (admin — exigem ADMIN_KEY)
+  clienteBloquear: (key, tel, bloquear) => api._post({ action: "clienteBloquear", key, tel, bloquear }),
+  listarFila: (key) => api._post({ action: "listarFila", key }),
   // extensões de contrato (degradam p/ modo demo sem backend):
   reagendar:     (agendamentoId, novoHorario, tel) => api._post({ action: "reagendar", agendamentoId, novoHorario, tel }),
   enviarLembrete:(tel, clienteId) => api._post({ action: "enviarLembrete", tel, clienteId }),
@@ -489,6 +492,7 @@ const adaptDashboard = (r) => {
     risco: !!c.risco,
     ultimoLembrete: c.ultimoLembrete ? String(c.ultimoLembrete) : "Nunca enviado",
     historico: [],                          // histórico por cliente vem em etapa futura
+    bloqueado: !!c.bloqueado,               // F.3: cliente bloqueado (blacklist)
   }));
   const agenda = (r.agenda || []).map(a => ({
     id: a.id,
@@ -2108,16 +2112,35 @@ const AgendaPage = () => {
   };
   const diasSemana = ["Seg","Ter","Qua","Qui","Sex","Sáb"];
 
-  const handleReagendar = (s) => {
-    toast(`${s.nome} movido para a fila de reagendamento`, A.cyan, "calendar");
+  // F.6: botões reais (guardados por hasBackend — em demo, comportamento antigo).
+  const handleReagendar = async (s) => {
+    if (!ENV.hasBackend) { toast(`${s.nome} movido para a fila de reagendamento`, A.cyan, "calendar"); return; }
+    const data = window.prompt("Reagendar — nova DATA (AAAA-MM-DD):"); if (!data) return;
+    const hora = window.prompt("Reagendar — novo HORÁRIO (HH:MM):"); if (!hora) return;
+    try {
+      const r = await api.reagendar(s.id, { data, hora });
+      if (r && r.success) { setAgendaState(prev=>prev.map(x=>x.id===s.id?{...x,status:"cancelado"}:x)); toast(`${s.nome} reagendado p/ ${data} ${hora} ✓`, A.cyan, "calendar"); }
+      else toast((r&&r.error)||"Não foi possível reagendar", A.amber, "warning");
+    } catch(e){ toast("Falha de rede ao reagendar", A.red, "warning"); }
   };
-  const handleCancelar = (s) => {
-    setAgendaState(prev=>prev.map(x=>x.id===s.id?{...x,status:"cancelado"}:x));
-    toast(`${s.nome} — horário ${s.hora} cancelado. Waitlist notificada.`, A.amber, "warning");
+  const handleCancelar = async (s) => {
+    if (!ENV.hasBackend) { setAgendaState(prev=>prev.map(x=>x.id===s.id?{...x,status:"cancelado"}:x)); toast(`${s.nome} — horário ${s.hora} cancelado (demo).`, A.amber, "warning"); return; }
+    if (typeof window!=="undefined" && !window.confirm(`Cancelar o horário ${s.hora} de ${s.nome}?`)) return;
+    try {
+      const r = await api.cancelar(s.id);
+      if (r && r.success) { setAgendaState(prev=>prev.map(x=>x.id===s.id?{...x,status:"cancelado"}:x)); toast(`${s.nome} — ${s.hora} cancelado ✓ Fila notificada.`, A.amber, "warning"); }
+      else toast((r&&r.error)||"Não foi possível cancelar", A.amber, "warning");
+    } catch(e){ toast("Falha de rede ao cancelar", A.red, "warning"); }
   };
-  const handleSinal = (s, cliente) => {
-    setSinaisAtivos(prev=>({...prev,[s.id]:true}));
-    toast(`Sinal enviado para ${cliente?.nome ?? s.nome} · WhatsApp`, A.purple, "phone");
+  const handleSinal = async (s, cliente) => {
+    if (!ENV.hasBackend) { setSinaisAtivos(prev=>({...prev,[s.id]:true})); toast(`Sinal enviado para ${cliente?.nome ?? s.nome} (demo)`, A.purple, "phone"); return; }
+    const tel = cliente?.telefone;
+    if (!tel) { toast("Cliente sem telefone p/ enviar o sinal", A.amber, "warning"); return; }
+    try {
+      const r = await api.enviarSinal(tel, cliente?.id, s.valor);
+      if (r && r.success !== false && !r.error) { setSinaisAtivos(prev=>({...prev,[s.id]:true})); toast(`Sinal enviado para ${cliente?.nome ?? s.nome} · WhatsApp ✓`, A.purple, "phone"); }
+      else toast((r&&r.error)||"Não foi possível enviar o sinal", A.amber, "warning");
+    } catch(e){ toast("Falha de rede ao enviar sinal", A.red, "warning"); }
   };
 
   return (
@@ -2389,6 +2412,17 @@ const ClientesPage = () => {
                 </div>
               </div>
             )}
+            <Btn variant={sel.bloqueado?"secondary":"danger"} size="sm" style={{width:"100%",justifyContent:"center",marginTop:S.sm}} onClick={async ()=>{
+              if(!ENV.hasBackend){ toast("Bloqueio disponível só com o backend conectado", A.amber, "warning"); return; }
+              const acao = sel.bloqueado ? "desbloquear" : "bloquear";
+              if(typeof window!=="undefined" && !window.confirm(`Deseja ${acao} ${sel.nome}? Cliente bloqueado não consegue agendar pelo site.`)) return;
+              const key = adminKeyStore.get() || (typeof window!=="undefined" ? window.prompt("Chave de admin (ADMIN_KEY do GAS):") : "");
+              if(!key) return;
+              try{
+                const r = await api.clienteBloquear(key, sel.tel, !sel.bloqueado);
+                toast(r&&r.success?(r.bloqueado?`${sel.nome} bloqueado`:`${sel.nome} desbloqueado`):(r&&r.error)||"GAS recusou a chave admin", r&&r.success?A.green:A.amber, r&&r.success?"check":"warning");
+              }catch(e){ toast("Falha de rede ao atualizar bloqueio", A.red, "warning"); }
+            }}>{sel.bloqueado?"Desbloquear cliente":"Bloquear cliente"}</Btn>
           </Card>
           <Card>
             <SectionHead title="Histórico" sub={`${sel.historico.length} últimas visitas`}
@@ -4411,3 +4445,5 @@ export default function App() {
     </ToastProvider>
   );
 }
+
+
