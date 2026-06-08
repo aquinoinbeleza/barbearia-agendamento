@@ -26,7 +26,7 @@ var HEADERS = {
   // Email é APPEND-ONLY no fim (col J) — não desloca os índices canônicos existentes.
   // Dependentes (col K) também é append-only: JSON [{nome,nascimento}] dos filhos/dependentes.
   // Foto (col L) também é append-only: link da foto do cliente (no Google Drive).
-  CLIENTES:     ['ClienteID','Telefone','Nome','NomeAbreviado','UltimoAgendamento','TotalAgendamentos','IntervaloDias','Nascimento','UltimoLembrete','Email','Dependentes','Foto'],
+  CLIENTES:     ['ClienteID','Telefone','Nome','NomeAbreviado','UltimoAgendamento','TotalAgendamentos','IntervaloDias','Nascimento','UltimoLembrete','Email','Dependentes','Foto','Bloqueado'],
   // Para (col O) também é append-only: nome do dependente quando o atendimento é p/ um filho.
   AGENDAMENTOS: ['ID','Nome','NomeAbreviado','Telefone','ClienteID','Servico','Duracao','Data','Horario','Preco','Status','CriadoEm','SinalStatus','Barbeiro','Para','Observacao'],
   FINANCEIRO:   ['Data','Tipo','Categoria','Descricao','Valor','Profissional','AgendamentoID','FormaPagamento','Status'],
@@ -41,7 +41,7 @@ var HEADERS = {
 };
 
 // Índices de coluna (0-based) — espelham os mnemônicos do master
-var CLI = { ID:0, TEL:1, NOME:2, ABREV:3, ULTIMO_AG:4, TOTAL:5, INTERVALO:6, NASC:7, ULTIMO_LEM:8, EMAIL:9, DEP:10, FOTO:11 };
+var CLI = { ID:0, TEL:1, NOME:2, ABREV:3, ULTIMO_AG:4, TOTAL:5, INTERVALO:6, NASC:7, ULTIMO_LEM:8, EMAIL:9, DEP:10, FOTO:11, BLOQ:12 };
 var AG  = { ID:0, NOME:1, ABREV:2, TEL:3, CLI_ID:4, SERV:5, DUR:6, DATA:7, HORA:8, PRECO:9, STATUS:10, CRIADO:11, SINAL:12, BARBEIRO:13, PARA:14, OBS:15 };
 var MP_ = { ID:0, TS:1, TIPO:2, DESTINO:3, CONTEUDO:4, TENTATIVAS:5, ERRO:6, STATUS:7 };
 
@@ -218,6 +218,8 @@ function doPost(e) {
       case 'barbeiroCreate':   return requireRole_(body, 'barbeiroCreate',  function(){ return actionBarbeiroCreate_(body); });
       case 'barbeiroUpdate':   return requireRole_(body, 'barbeiroUpdate',  function(){ return actionBarbeiroUpdate_(body); });
       case 'barbeiroDelete':   return requireRole_(body, 'barbeiroDelete',  function(){ return actionBarbeiroDelete_(body); });
+      case 'clienteBloquear':  return requireRole_(body, 'clienteBloquear', function(){ return actionClienteBloquear_(body); });
+      case 'listarFila':       return requireRole_(body, 'listarFila',      function(){ return { success:true, fila: listarFilaAtiva_() }; });
       default:                 return json_(respostaErro_('acao_desconhecida'));
     }
   } catch (err) { logErro_('doPost', err); return json_(respostaErro_('erro_interno')); }
@@ -309,6 +311,28 @@ function respostaErro_(code) {
 }
 
 // ─── AÇÕES DO SITE (respostas canônicas do master) ─────────────────────────
+// ─── BLACKLIST (F.3) + LEITURA DA FILA (F.2) ───────────────────────────────
+function ehBloqueado_(o){ var v=o&&o[CLI.BLOQ]; return v===true||v===1||v==='1'||v==='true'||v==='TRUE'||v==='sim'||v==='SIM'; }
+function actionClienteBloquear_(b){
+  var tel = telLimpo_(b.tel || b.telefone);
+  var r = findClienteByTel_(tel);
+  if (!r) return { success:false, error:'Cliente não encontrado' };
+  var novo = (b.bloquear===undefined || b.bloquear===null) ? !ehBloqueado_(r.obj) : !!b.bloquear;
+  setCell_(SHEETS.CLIENTES, r.rowIndex, CLI.BLOQ, novo ? 'true' : '');
+  return { success:true, clienteID:r.obj[CLI.ID], bloqueado:novo };
+}
+function listarFilaAtiva_(){
+  return getRowsData_(SHEETS.FILA_ESPERA).filter(function(f){
+    return f[FE.STATUS]===FILA_STATUS.AGUARDANDO || f[FE.STATUS]===FILA_STATUS.NOTIFICADO;
+  }).map(function(f){
+    return { id:f[FE.ID], clienteID:f[FE.CLI_ID], telefone:f[FE.TEL], nome:f[FE.NOME], servico:f[FE.SERV],
+             data:f[FE.DATA], horario:f[FE.HORA], flexibilidade:f[FE.FLEX], status:f[FE.STATUS],
+             notificadoEm:f[FE.NOTIF], expiraEm:f[FE.EXPIRA], criadoEm:f[FE.CRIADO] };
+  });
+}
+// Run-once (opcional): rotula a coluna M "Bloqueado" sem apagar dados (setupSheets é destrutivo).
+function prepararColunaBloqueado(){ var sh=ss_().getSheetByName(SHEETS.CLIENTES); if(!sh) return 'sem aba Clientes'; sh.getRange(1, CLI.BLOQ+1).setValue('Bloqueado'); return 'OK'; }
+
 function actionVerificarCliente_(p) {
   var tel = telLimpo_(p.tel);
   var r = findClienteByTel_(tel);
@@ -323,7 +347,7 @@ function actionVerificarCliente_(p) {
     intervaloDias:Number(o[CLI.INTERVALO])||15,
     score:cls.score, nivel:cls.nivel, nivelEmoji:cls.nivelEmoji,
     status:cls.statusLabel, statusLabel:cls.statusLabel, statusCor:cls.statusCor,
-    cancelamentos:contarCancelamentos_(o[CLI.ID]),
+    cancelamentos:contarCancelamentos_(o[CLI.ID]), bloqueado:ehBloqueado_(o),
   };
 }
 
@@ -463,6 +487,10 @@ function actionAgendamento_(b) {
   var preco   = parseFloat(servObj ? servObj.preco : (b.preco || b.valor)) || 0;
   var observacao = sanitizar_(String(b.observacao || '')).slice(0, 280); // P0-5: pedido especial do cliente
   if (!nome || !tel || !data || !horario || !servico) return respostaErro_('dados_invalidos');
+
+  // F.3: cliente bloqueado (blacklist) não agenda — trava também na API, não só na UI.
+  var cliBloq = findClienteByTel_(tel);
+  if (cliBloq && ehBloqueado_(cliBloq.obj)) return { success:false, error:'cliente_bloqueado' };
 
   // conflito de horário — sobreposição REAL por duração (P0-2). Ocupa: confirmado/presença/realizado/aguardando_sinal. Ignora: cancelado/faltou.
   var tNova = toMin_(horario), durNova = duracao;
@@ -633,7 +661,7 @@ function actionDashboard_(perfil) {
     return { clienteID:c[CLI.ID], nome:c[CLI.NOME], telefone:c[CLI.TEL], totalVisitas:Number(c[CLI.TOTAL])||0,
              ultimoAgendamento:c[CLI.ULTIMO_AG], ultimoLembrete:c[CLI.ULTIMO_LEM], intervaloDias:Number(c[CLI.INTERVALO])||15, diasDesde:diasDesde_(c[CLI.ULTIMO_AG]),
              score:cls.score, nivel:cls.nivel, nivelEmoji:cls.nivelEmoji, status:cls.statusLabel, statusCor:cls.statusCor, risco:shouldFlagRisk_(c[CLI.ID]), cancelamentos:contarCancelamentos_(c[CLI.ID]),
-             gasto:gastoDe_(c[CLI.ID]), proximo:proximoDe_(c[CLI.ID]), historico:historicoDe_(c[CLI.ID]) };
+             gasto:gastoDe_(c[CLI.ID]), proximo:proximoDe_(c[CLI.ID]), historico:historicoDe_(c[CLI.ID]), bloqueado:ehBloqueado_(c) };
   }).sort(function(a,b){ return a.score - b.score; }); // piores primeiro (ação imediata)
   return {
     success:true, autenticado:true,
@@ -1911,3 +1939,5 @@ function repararContagens() {
   detalhes.forEach(function (l) { Logger.log(l); });
   return { corrigidos: corrigidos, detalhes: detalhes };
 }
+
+
