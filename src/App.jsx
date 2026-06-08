@@ -1978,14 +1978,29 @@ const FinanceiroPage = () => {
   const { semana, mes, servicos } = DB.financeiro;
   const max = Math.max(...semana.valores);
   const [hoverBar, setHoverBar] = useState(null);
+  // F.7: métricas reais (receita/ticket/atendimentos do período) p/ os cards e metas — fallback p/ demo.
+  const adminKey = useStore(adminKeyStore);
+  const [dreReal, setDreReal] = useState(null);
+  useEffect(() => {
+    if (!ENV.hasBackend || !adminKey) { setDreReal(null); return; }
+    let vivo = true;
+    api.metricas(adminKey, 30).then(r => { if (vivo && r && r.success && r.dre) setDreReal(r.dre); }).catch(()=>{});
+    return () => { vivo = false; };
+  }, [adminKey]);
+  const brlK = (v)=>"R$ "+Number(v||0).toLocaleString("pt-BR");
+  const hojeFat = (DB.financeiro.hoje && DB.financeiro.hoje.faturado) || 0;
+  const hojeMeta = (DB.financeiro.hoje && DB.financeiro.hoje.meta) || 600;
+  const fatMes   = dreReal ? dreReal.receita : mes.faturado;
+  const ticketV  = dreReal ? dreReal.ticketMedio : mes.ticket;
+  const atendMes = dreReal ? dreReal.atendimentos : 218;
 
   return (
     <div style={{display:"flex",flexDirection:"column",gap:S.lg}}>
       <div style={{display:"flex",gap:S.md}}>
         {[
-          {l:"Faturado hoje",v:"R$ 487",sub:"Meta R$ 600",c:A.blue,prog:81},
-          {l:"Faturado no mês",v:"R$ 11.420",sub:"Meta R$ 14.000",c:A.green,prog:81.6},
-          {l:"Ticket médio",v:`R$ ${mes.ticket}`,sub:"Por atendimento",c:A.cyan,prog:null},
+          {l:"Faturado hoje",v:brlK(hojeFat),sub:`Meta ${brlK(hojeMeta)}`,c:A.blue,prog:Math.min(100,Math.round(hojeFat/hojeMeta*100))},
+          {l:"Faturado no mês",v:brlK(fatMes),sub:`Meta ${brlK(mes.meta||14000)}`,c:A.green,prog:Math.min(100,Math.round(fatMes/((mes.meta)||14000)*100))},
+          {l:"Ticket médio",v:`R$ ${ticketV}`,sub:dreReal?"Real · últimos 30 dias":"Por atendimento",c:A.cyan,prog:null},
           {l:"Recorrência",v:`${mes.recorrencia}%`,sub:"Clientes que voltaram",c:A.purple,prog:null},
         ].map((st,i)=>(
           <Card key={i} style={{flex:1}}>
@@ -2069,8 +2084,8 @@ const FinanceiroPage = () => {
         <Card style={{flex:1}}>
           <SectionHead title="Metas — Maio" sub="Progresso em tempo real"/>
           {[
-            {l:"Faturamento",atual:11420,meta:14000,c:A.blue},
-            {l:"Atendimentos",atual:218,meta:260,c:A.cyan},
+            {l:"Faturamento",atual:fatMes,meta:(mes.meta||14000),c:A.blue},
+            {l:"Atendimentos",atual:atendMes,meta:260,c:A.cyan},
             {l:"Novos clientes",atual:14,meta:20,c:A.green},
           ].map((g,i)=>{
             const pct=Math.round((g.atual/g.meta)*100);
@@ -2796,6 +2811,22 @@ const LoyaltyPage = () => {
 const WaitlistPage = () => {
   const toast = useToast();
   const [fila, setFila] = useState(DB.waitlist);
+  const adminKey = useStore(adminKeyStore);
+  useEffect(() => {                                  // F.2: lê a fila real do backend
+    if (!ENV.hasBackend || !adminKey) return;
+    let vivo = true;
+    api.listarFila(adminKey).then(r => {
+      if (vivo && r && r.success && Array.isArray(r.fila)) {
+        setFila(r.fila.map((f, i) => ({
+          id: f.id, clienteId: f.clienteID, nome: f.nome || "—", servico: f.servico,
+          horario: (f.horario && f.horario !== "qualquer") ? f.horario : "qualquer horário",
+          posicao: i + 1, status: f.status,
+          ttl: (f.status === "notificado" && f.expiraEm) ? Math.max(0, Math.round((new Date(f.expiraEm) - Date.now())/60000)) : null,
+        })));
+      }
+    }).catch(()=>{});
+    return () => { vivo = false; };
+  }, [adminKey]);
   const [promovido, setPromovido] = useState(null);
   const promover=(id)=>{
     const item = fila.find(f=>f.id===id);
