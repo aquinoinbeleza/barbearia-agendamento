@@ -491,7 +491,7 @@ const adaptDashboard = (r) => {
     statusCor: c.statusCor,
     risco: !!c.risco,
     ultimoLembrete: c.ultimoLembrete ? String(c.ultimoLembrete) : "Nunca enviado",
-    historico: [],                          // histórico por cliente vem em etapa futura
+    historico: Array.isArray(c.historico) ? c.historico.map(h=>({ d: String(h.data||"").split("-").reverse().join("/"), s: h.servico, v: Number(h.preco)||0 })) : [],  // F.4: histórico real
     bloqueado: !!c.bloqueado,               // F.3: cliente bloqueado (blacklist)
   }));
   const agenda = (r.agenda || []).map(a => ({
@@ -2935,6 +2935,14 @@ const WaitlistPage = () => {
 const RelatoriosPage = () => {
   const toast = useToast();
   const cfg = useStore(configStore);
+  const adminKey = useStore(adminKeyStore);
+  const [dreReal, setDreReal] = useState(null);   // F.7: números reais no PDF
+  useEffect(() => {
+    if (!ENV.hasBackend || !adminKey) { setDreReal(null); return; }
+    let vivo = true;
+    api.metricas(adminKey, 30).then(r => { if (vivo && r && r.success && r.dre) setDreReal(r.dre); }).catch(()=>{});
+    return () => { vivo = false; };
+  }, [adminKey]);
 
   // Datasets reais derivados do DB / config — exportados de verdade.
   const datasets = {
@@ -2961,7 +2969,9 @@ const RelatoriosPage = () => {
     "Projeção Junho 2026": {
       tipo:"Financeiro",
       headers:["Métrica","Valor"],
-      rows:[["Faturamento projetado","R$ 12.800"],["Ticket médio","R$ 66,40"],["Recorrência","74%"]],
+      rows: dreReal
+        ? [["Receita (últimos 30 dias)","R$ "+Number(dreReal.receita||0).toLocaleString("pt-BR")],["Ticket médio","R$ "+Number(dreReal.ticketMedio||0).toLocaleString("pt-BR")],["Atendimentos (30 dias)",String(dreReal.atendimentos||0)]]
+        : [["Faturamento projetado","R$ 12.800"],["Ticket médio","R$ 66,40"],["Recorrência","74%"]],
     },
   };
 
