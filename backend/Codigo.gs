@@ -78,7 +78,7 @@ var KEYWORDS = {
 
 function defaultConfig_() {
   return {
-    barbearia: { nome:'Aquino Barbearia & Estética', cidade:'Ipatinga · MG', endereco:'Av. 28 de Abril, 1200 — Centro', telefone:'(31) 99999-0000', logoUrl:'' },
+    barbearia: { nome:'Aquino Barbearia & Estética', cidade:'Ipatinga · MG', endereco:'Av. 28 de Abril, 1200 — Centro', telefone:'(31) 99999-0000', logoUrl:'', instagram:'', google:'', facebook:'' },
     servicos: [
       { id:1, nome:'Corte', preco:45, duracao:45, ativo:true },
       { id:2, nome:'Corte + Barba', preco:65, duracao:90, ativo:true },
@@ -95,7 +95,7 @@ function defaultConfig_() {
       { dia:'Sábado',  abre:'08:00', fecha:'18:00', fechado:false },
       { dia:'Domingo', abre:'—', fecha:'—', fechado:true },
     ],
-    operacao: { slotMin:15, antecedencia:60, sinalPct:30, cancelamentoH:12, intervaloRetornoDias:15 },
+    operacao: { slotMin:15, antecedencia:60, sinalPct:30, cancelamentoH:12, intervaloRetornoDias:15, antecedenciaMaxDias:60 },
     // Barbeiros/profissionais — editáveis no painel admin (add/editar/excluir).
     // Começa só com o dono; o cliente escolhe o barbeiro no agendamento online.
     barbeiros: [
@@ -109,7 +109,7 @@ function defaultConfig_() {
 // com preços/durações corretos, e fechado Domingo E Segunda. Pode rodar de novo sem problema.
 function seedDadosReais() {
   var cfg = {
-    barbearia: { nome:'AQUINO | Barbearia & Estética', cidade:'Ipatinga · MG', endereco:'R. Carlos Gomes, 256 — Ideal, Ipatinga/MG, CEP 35162-165', telefone:'(31) 98698-8939', logoUrl:'' },
+    barbearia: { nome:'AQUINO | Barbearia & Estética', cidade:'Ipatinga · MG', endereco:'R. Carlos Gomes, 256 — Ideal, Ipatinga/MG, CEP 35162-165', telefone:'(31) 98698-8939', logoUrl:'', instagram:'https://www.instagram.com/aquino.inbeleza', google:'https://maps.app.goo.gl/ZPYyxRyc32MxKHCT7', facebook:'https://www.facebook.com/aquino.inbeleza/' },
     servicos: [
       { id:1,  nome:'Corte', preco:40, duracao:60, ativo:true },
       { id:2,  nome:'Barba (navalha + toalha quente)', preco:35, duracao:35, ativo:true },
@@ -140,7 +140,7 @@ function seedDadosReais() {
       { dia:'Sábado',  abre:'08:00', fecha:'19:00', fechado:false },
       { dia:'Domingo', abre:'—',     fecha:'—',     fechado:true  }
     ],
-    operacao: { slotMin:15, antecedencia:60, sinalPct:30, cancelamentoH:12, intervaloRetornoDias:15 },
+    operacao: { slotMin:15, antecedencia:60, sinalPct:30, cancelamentoH:12, intervaloRetornoDias:15, antecedenciaMaxDias:60 },
     barbeiros: [ { id:1, nome:'Vinícius Aquino', ativo:true } ]
   };
   var r = actionSalvarConfig_({ config: cfg });
@@ -453,16 +453,20 @@ function actionSlots_(p) {
   var h = cfg.horarios.filter(function(x){ return x.dia === dow; })[0];
   if (!h || h.fechado) return { slots:[], fechado:true };
   var passo = cfg.operacao.slotMin || 15;
-  var ocupados = getAgendamentos_()
-    .filter(function(a){ return a[AG.DATA] === data && a[AG.STATUS] !== STATUS.CANCELADO; })
-    .map(function(a){ return a[AG.HORA]; });
-  var busy = intervalosOcupadosCalendar_(data); // [{ini,fim}] em minutos — folgas/feriados/eventos
+  // Ocupação REAL por DURAÇÃO (mesma regra do P0-2): cada agendamento bloqueia de ini até ini+duracao.
+  // Ignora cancelado/faltou. Antes só barrava a hora exata e podia ofertar slot que o backend recusa.
+  var agBusy = getAgendamentos_()
+    .filter(function(a){ return a[AG.DATA] === data && a[AG.STATUS] !== STATUS.CANCELADO && a[AG.STATUS] !== STATUS.FALTOU; })
+    .map(function(a){ var ini = toMin_(a[AG.HORA]); return { ini: ini, fim: ini + (Number(a[AG.DUR]) || 45) }; });
+  var busy = intervalosOcupadosCalendar_(data).concat(agBusy); // folgas/feriados/eventos + agendamentos
+  // Antecedência mínima: no dia de hoje, não ofertar horários antes de agora + operacao.antecedencia (min).
+  var minMin = -1;
+  if (data === hojeISO_()) minMin = toMin_(Utilities.formatDate(new Date(), tz_(), 'HH:mm')) + (Number(cfg.operacao.antecedencia) || 0);
   var slots = [];
   for (var t = toMin_(h.abre); t + duracao <= toMin_(h.fecha); t += passo) {
-    var hhmm = fromMin_(t);
-    if (ocupados.indexOf(hhmm) > -1) continue;
+    if (t < minMin) continue;
     var colide = busy.some(function(b){ return t < b.fim && (t + duracao) > b.ini; });
-    if (!colide) slots.push(hhmm);
+    if (!colide) slots.push(fromMin_(t));
   }
   return { slots: slots };
 }
@@ -508,6 +512,19 @@ function actionAgendamento_(b) {
   // F.3: cliente bloqueado (blacklist) não agenda — trava também na API, não só na UI.
   var cliBloq = findClienteByTel_(tel);
   if (cliBloq && ehBloqueado_(cliBloq.obj)) return { success:false, error:'cliente_bloqueado' };
+
+  // Antecedência: não agenda no passado/cedo demais (operacao.antecedencia, min) nem longe
+  // demais (operacao.antecedenciaMaxDias, padrão 60). Rede de segurança no servidor.
+  var iniDt = parseDataHora_(data, horario);
+  if (iniDt) {
+    var op = getConfig_().operacao;
+    var agoraMs = Date.now();
+    if (iniDt.getTime() < agoraMs + (Number(op.antecedencia) || 0) * 60000)
+      return { success:false, error:'Esse horário já passou ou está muito próximo. Escolha outro.' };
+    var maxDias = Number(op.antecedenciaMaxDias) || 60;
+    if (iniDt.getTime() > agoraMs + maxDias * 86400000)
+      return { success:false, error:'Agendamentos só até ' + maxDias + ' dias à frente.' };
+  }
 
   // conflito de horário — sobreposição REAL por duração (P0-2). Ocupa: confirmado/presença/realizado/aguardando_sinal. Ignora: cancelado/faltou.
   var tNova = toMin_(horario), durNova = duracao;
