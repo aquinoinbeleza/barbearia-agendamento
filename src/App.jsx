@@ -99,6 +99,18 @@ const api = {
   importarClientes: (key, clientes) => api._post({ action: "importarClientes", key, clientes }),
   // v5: estorno do sinal (Mercado Pago) de um agendamento
   estornarSinal: (key, agendamentoId) => api._post({ action: "estornarSinal", key, agendamentoId }),
+  // v6: ERP — caixa, comanda e cupons (admin)
+  caixaStatus:  (key) => api._post({ action: "caixaStatus", key }),
+  caixaAbrir:   (key, valorAbertura) => api._post({ action: "caixaAbrir", key, valorAbertura }),
+  caixaFechar:  (key, valorFechamento) => api._post({ action: "caixaFechar", key, valorFechamento }),
+  caixaSangria: (key, valor, motivo) => api._post({ action: "caixaSangria", key, valor, motivo }),
+  comandaCriar: (key, clienteId, nome) => api._post({ action: "comandaCriar", key, clienteId, nome }),
+  comandaAtualizar: (key, id, itens, desconto) => api._post({ action: "comandaAtualizar", key, id, itens, desconto }),
+  comandaFechar: (key, id, formaPagamento) => api._post({ action: "comandaFechar", key, id, formaPagamento }),
+  comandaListar: (key) => api._post({ action: "comandaListar", key }),
+  cupomListar:  (key) => api._post({ action: "cupomListar", key }),
+  cupomSalvar:  (key, cupom) => api._post({ action: "cupomSalvar", key, ...cupom }),
+  cupomValidar: (key, codigo, total) => api._post({ action: "cupomValidar", key, codigo, total }),
   // extensões de contrato (degradam p/ modo demo sem backend):
   reagendar:     (agendamentoId, novoHorario, tel) => api._post({ action: "reagendar", agendamentoId, novoHorario, tel }),
   enviarLembrete:(tel, clienteId) => api._post({ action: "enviarLembrete", tel, clienteId }),
@@ -1355,6 +1367,7 @@ const Sidebar = ({ active, setActive }) => {
     { id:"clients",  label:"Clientes",   icon:"clients",  badge:null },
     { id:"crm",      label:"CRM",        icon:"crm",      badge:String(DB.clientes.filter(c=>BE.shouldFlagRisk(c)).length) },
     { id:"finance",  label:"Financeiro", icon:"finance",  badge:null },
+    { id:"caixa",    label:"Caixa",      icon:"finance",  badge:null },
     { id:"loyalty",  label:"Fidelização",icon:"loyalty",  badge:null },
     { id:"waitlist", label:"Waitlist",   icon:"waitlist", badge:String(DB.waitlist.length) },
     { id:"reports",  label:"Relatórios", icon:"reports",  badge:null },
@@ -2788,6 +2801,286 @@ const CRMPage = () => {
           </div>
         </div>
       )}
+    </div>
+  );
+};
+
+// ─── CAIXA · COMANDA · CUPONS (v6 — ERP) ───────────────────────────────────
+const Modal = ({ onClose, children, width=460 }) => (
+  <div onClick={()=>onClose&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,padding:S.lg}}>
+    <div onClick={e=>e.stopPropagation()} style={{width:"100%",maxWidth:width,maxHeight:"90vh",overflowY:"auto"}}>
+      <Card>{children}</Card>
+    </div>
+  </div>
+);
+const CaixaPage = () => {
+  const toast = useToast();
+  const conf = useStore(configStore) || DEFAULT_CONFIG;
+  const key = () => adminKeyStore.get();
+  const [caixa, setCaixa] = useState(null);
+  const [comandas, setComandas] = useState([]);
+  const [cupons, setCupons] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [abrirOpen, setAbrirOpen] = useState(false); const [vAbertura, setVAbertura] = useState("");
+  const [sangriaOpen, setSangriaOpen] = useState(false); const [sangVal, setSangVal] = useState(""); const [sangMot, setSangMot] = useState("");
+  const [fecharOpen, setFecharOpen] = useState(false); const [vFech, setVFech] = useState("");
+  const [novoNome, setNovoNome] = useState("");
+  const [cmOpen, setCmOpen] = useState(false); const [cmAtual, setCmAtual] = useState(null);
+  const [cmItens, setCmItens] = useState([]); const [cmDesc, setCmDesc] = useState(0);
+  const [cmCupom, setCmCupom] = useState(""); const [cmPgto, setCmPgto] = useState("dinheiro");
+  const [addServId, setAddServId] = useState(""); const [freeNome, setFreeNome] = useState(""); const [freePreco, setFreePreco] = useState("");
+  const [cupOpen, setCupOpen] = useState(false);
+  const [cupForm, setCupForm] = useState({ codigo:"", tipo:"percent", valor:"", validade:"", usoMax:"", ativo:true });
+
+  const semBackend = !ENV.hasBackend;
+  const totalComanda = (itens, desc) => Math.max(0, (itens||[]).reduce((s,it)=>s+(Number(it.preco)||0)*(Number(it.qtd)||1),0) - (Number(desc)||0));
+  const recarregar = async () => {
+    if (semBackend) return;
+    try {
+      const r = await api.caixaStatus(key());
+      if (r && r.aberto) { setCaixa(r.caixa); setComandas(r.comandas||[]); } else { setCaixa(null); setComandas([]); }
+      const rc = await api.cupomListar(key()); if (rc && rc.cupons) setCupons(rc.cupons);
+    } catch(e){}
+  };
+  useEffect(()=>{ recarregar(); }, []);
+
+  const fazerAbrir = async () => {
+    if (semBackend) { toast("Conecte o backend p/ usar o caixa", A.amber, "warning"); return; }
+    setBusy(true); const r = await api.caixaAbrir(key(), Number(vAbertura)||0); setBusy(false);
+    if (r && r.success) { toast("Caixa aberto ✓", A.green, "check"); setAbrirOpen(false); setVAbertura(""); recarregar(); }
+    else toast((r&&r.error)||"Não foi possível abrir", A.amber, "warning");
+  };
+  const fazerSangria = async () => {
+    setBusy(true); const r = await api.caixaSangria(key(), Number(sangVal)||0, sangMot); setBusy(false);
+    if (r && r.success) { toast("Sangria registrada ✓", A.green, "check"); setSangriaOpen(false); setSangVal(""); setSangMot(""); recarregar(); }
+    else toast((r&&r.error)||"Não foi possível registrar", A.amber, "warning");
+  };
+  const fazerFechar = async () => {
+    setBusy(true); const r = await api.caixaFechar(key(), Number(vFech)||0); setBusy(false);
+    if (r && r.success) { toast(`Caixa fechado · vendas R$ ${Number(r.vendas||0).toFixed(2)} · diferença R$ ${Number(r.diferenca||0).toFixed(2)}`, A.green, "check"); setFecharOpen(false); setVFech(""); recarregar(); }
+    else toast((r&&r.error)||"Não foi possível fechar", A.amber, "warning");
+  };
+  const abrirComanda = (c) => { setCmAtual(c); setCmItens(c.itens||[]); setCmDesc(c.desconto||0); setCmCupom(""); setCmPgto("dinheiro"); setAddServId(""); setFreeNome(""); setFreePreco(""); setCmOpen(true); };
+  const novaComanda = async () => {
+    if (!novoNome.trim()) { toast("Informe o nome do cliente", A.amber, "warning"); return; }
+    setBusy(true); const r = await api.comandaCriar(key(), "", novoNome.trim()); setBusy(false);
+    if (r && r.success) { const nome = novoNome.trim(); setNovoNome(""); await recarregar(); abrirComanda({ id:r.id, nome, itens:[], desconto:0, total:0, status:"aberta" }); }
+    else toast((r&&r.error)||"Não foi possível criar a comanda", A.amber, "warning");
+  };
+  const addServico = () => { const sv=(conf.servicos||[]).find(s=>String(s.id)===String(addServId)); if(!sv) return; setCmItens(p=>[...p,{nome:sv.nome,preco:Number(sv.preco)||0,qtd:1}]); setAddServId(""); };
+  const addFree = () => { if(!freeNome.trim()||!(Number(freePreco)>0)){ toast("Nome e preço do item", A.amber, "warning"); return; } setCmItens(p=>[...p,{nome:freeNome.trim(),preco:Number(freePreco)||0,qtd:1}]); setFreeNome(""); setFreePreco(""); };
+  const setQtd = (i,delta) => setCmItens(p=>p.map((it,idx)=>idx===i?{...it,qtd:Math.max(1,(Number(it.qtd)||1)+delta)}:it));
+  const removeItem = (i) => setCmItens(p=>p.filter((_,idx)=>idx!==i));
+  const aplicarCupom = async () => {
+    if (!cmCupom.trim()) return;
+    const r = await api.cupomValidar(key(), cmCupom.trim(), totalComanda(cmItens,0));
+    if (r && r.success) { setCmDesc(r.desconto); toast(`Cupom ${r.codigo}: -R$ ${Number(r.desconto||0).toFixed(2)}`, A.green, "check"); }
+    else toast((r&&r.error)||"Cupom inválido", A.amber, "warning");
+  };
+  const salvarComanda = async () => {
+    if (!cmAtual) return; setBusy(true);
+    const r = await api.comandaAtualizar(key(), cmAtual.id, cmItens, Number(cmDesc)||0); setBusy(false);
+    if (r && r.success) { toast("Comanda salva ✓", A.green, "check"); recarregar(); }
+    else toast((r&&r.error)||"Não foi possível salvar", A.amber, "warning");
+  };
+  const fecharComanda = async () => {
+    if (!cmAtual) return;
+    if (!cmItens.length) { toast("Adicione itens antes de fechar", A.amber, "warning"); return; }
+    setBusy(true);
+    await api.comandaAtualizar(key(), cmAtual.id, cmItens, Number(cmDesc)||0);
+    const r = await api.comandaFechar(key(), cmAtual.id, cmPgto); setBusy(false);
+    if (r && r.success) { toast(`Comanda fechada · R$ ${Number(r.total||0).toFixed(2)} (${cmPgto})`, A.green, "check"); setCmOpen(false); recarregar(); }
+    else toast((r&&r.error)||"Não foi possível fechar", A.amber, "warning");
+  };
+  const salvarCupom = async () => {
+    if (!cupForm.codigo.trim()) { toast("Informe o código", A.amber, "warning"); return; }
+    setBusy(true);
+    const r = await api.cupomSalvar(key(), { codigo:cupForm.codigo.trim(), tipo:cupForm.tipo, valor:Number(cupForm.valor)||0, validade:cupForm.validade, usoMax:Number(cupForm.usoMax)||0, ativo:cupForm.ativo });
+    setBusy(false);
+    if (r && r.success) { toast("Cupom salvo ✓", A.green, "check"); setCupOpen(false); setCupForm({ codigo:"", tipo:"percent", valor:"", validade:"", usoMax:"", ativo:true }); recarregar(); }
+    else toast((r&&r.error)||"Não foi possível salvar o cupom", A.amber, "warning");
+  };
+
+  const selStyle = {background:A.bg1,border:`1px solid ${A.border}`,borderRadius:R.md,padding:"8px 11px",color:A.textPri,fontSize:12,fontFamily:SHARED.fontAdmin,outline:"none",width:"100%"};
+  const cmTotal = totalComanda(cmItens, cmDesc);
+  const metodos = [["dinheiro","Dinheiro"],["pix","Pix"],["credito","Crédito"],["debito","Débito"]];
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:S.lg}}>
+      {semBackend && <Card><div style={{color:A.amber,fontSize:12}}>Conecte o backend (VITE_GAS_URL) para usar o Caixa. Em modo demonstração ele não grava.</div></Card>}
+
+      {!caixa ? (
+        <Card>
+          <SectionHead title="Caixa fechado" sub="Abra o caixa para registrar comandas e pagamentos do dia"/>
+          <Btn onClick={()=>setAbrirOpen(true)} disabled={semBackend}><Ico n="plus" size={12} color="#fff"/>Abrir caixa</Btn>
+        </Card>
+      ) : (
+        <>
+          <div className="aq-row-stack" style={{display:"flex",gap:S.md}}>
+            {[{l:"Abertura",v:caixa.valorAbertura,c:A.textSec},{l:"Vendas",v:caixa.vendas,c:A.green},{l:"Sangrias",v:caixa.totalSangria,c:A.amber},{l:"Saldo esperado",v:caixa.saldoEsperado,c:A.cyan}].map((k,i)=>(
+              <Card key={i} style={{flex:1}}>
+                <div style={{color:A.textMuted,fontSize:9,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:4}}>{k.l}</div>
+                <div style={{color:k.c,fontSize:20,fontWeight:800,fontFamily:SHARED.fontMono}}>R$ {Number(k.v||0).toFixed(2)}</div>
+              </Card>
+            ))}
+          </div>
+          <div style={{display:"flex",gap:S.sm,alignItems:"center",flexWrap:"wrap"}}>
+            <Btn variant="secondary" size="sm" onClick={()=>setSangriaOpen(true)}>Sangria</Btn>
+            <Btn variant="amber" size="sm" onClick={()=>setFecharOpen(true)}>Fechar caixa</Btn>
+            <div style={{flex:1,minWidth:120}}/>
+            <input value={novoNome} onChange={e=>setNovoNome(e.target.value)} placeholder="Nome do cliente" style={{...selStyle,width:180}}/>
+            <Btn size="sm" onClick={novaComanda} disabled={busy}><Ico n="plus" size={11} color="#fff"/>Nova comanda</Btn>
+          </div>
+          <Card pad={false}>
+            <div style={{padding:`${S.md}px ${S.xl}px`,borderBottom:`1px solid ${A.border}`}}>
+              <div style={{color:A.textPri,fontWeight:700,fontSize:13}}>Comandas do caixa</div>
+              <div style={{color:A.textMuted,fontSize:10,marginTop:2}}>{comandas.filter(c=>c.status==="aberta").length} abertas · {comandas.filter(c=>c.status==="fechada").length} fechadas</div>
+            </div>
+            <div style={{padding:`${S.sm}px ${S.md}px`}}>
+              {comandas.length===0 && <div style={{color:A.textMuted,fontSize:11,padding:"14px 0",textAlign:"center"}}>Nenhuma comanda ainda. Crie uma acima.</div>}
+              {comandas.map((c,i)=>(
+                <div key={c.id} onClick={()=>c.status==="aberta"&&abrirComanda(c)} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 8px",borderBottom:i<comandas.length-1?`1px solid ${A.border}`:"none",cursor:c.status==="aberta"?"pointer":"default",opacity:c.status==="aberta"?1:0.6}}>
+                  <Avatar nome={c.nome} size={30} color={c.status==="aberta"?A.cyan:A.textMuted}/>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{color:A.textPri,fontSize:12,fontWeight:600}}>{c.nome}</div>
+                    <div style={{color:A.textSec,fontSize:10}}>{(c.itens||[]).length} item(s){c.status==="fechada"&&c.formaPagamento?` · ${c.formaPagamento}`:""}</div>
+                  </div>
+                  <span style={{color:A.green,fontSize:12,fontFamily:SHARED.fontMono}}>R$ {Number(c.total||0).toFixed(2)}</span>
+                  <Badge color={c.status==="aberta"?A.cyan:A.textMuted} dot>{c.status==="aberta"?"Aberta":"Fechada"}</Badge>
+                </div>
+              ))}
+            </div>
+          </Card>
+          <Card pad={false}>
+            <div style={{padding:`${S.md}px ${S.xl}px`,borderBottom:`1px solid ${A.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div>
+                <div style={{color:A.textPri,fontWeight:700,fontSize:13}}>Cupons</div>
+                <div style={{color:A.textMuted,fontSize:10,marginTop:2}}>{cupons.length} cadastrados</div>
+              </div>
+              <Btn variant="secondary" size="sm" onClick={()=>{ setCupForm({ codigo:"", tipo:"percent", valor:"", validade:"", usoMax:"", ativo:true }); setCupOpen(true); }}><Ico n="plus" size={11} color={A.textSec}/>Novo cupom</Btn>
+            </div>
+            <div style={{padding:`${S.sm}px ${S.md}px`}}>
+              {cupons.length===0 && <div style={{color:A.textMuted,fontSize:11,padding:"12px 0",textAlign:"center"}}>Nenhum cupom. Crie um para usar nas comandas.</div>}
+              {cupons.map((cp,i)=>(
+                <div key={cp.codigo} onClick={()=>{ setCupForm({ codigo:cp.codigo, tipo:cp.tipo, valor:String(cp.valor), validade:cp.validade||"", usoMax:String(cp.usoMax||""), ativo:cp.ativo }); setCupOpen(true); }} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 8px",borderBottom:i<cupons.length-1?`1px solid ${A.border}`:"none",cursor:"pointer"}}>
+                  <span style={{fontFamily:SHARED.fontMono,fontWeight:700,fontSize:12,color:A.cyan}}>{cp.codigo}</span>
+                  <div style={{flex:1,color:A.textSec,fontSize:10}}>{cp.tipo==="percent"?`${cp.valor}%`:`R$ ${cp.valor}`}{cp.validade?` · vence ${cp.validade.split("-").reverse().join("/")}`:""}{cp.usoMax>0?` · ${cp.usoCount}/${cp.usoMax} usos`:""}</div>
+                  <Badge color={cp.ativo?A.green:A.textMuted} dot>{cp.ativo?"Ativo":"Inativo"}</Badge>
+                </div>
+              ))}
+            </div>
+          </Card>
+        </>
+      )}
+
+      {abrirOpen && (<Modal onClose={()=>!busy&&setAbrirOpen(false)} width={380}>
+        <SectionHead title="Abrir caixa" sub="Informe o valor inicial em dinheiro (troco)"/>
+        <Field label="Valor de abertura (R$)"><TextInput type="number" value={vAbertura} onChange={setVAbertura} placeholder="0,00"/></Field>
+        <div style={{marginTop:S.md,display:"flex",justifyContent:"flex-end",gap:S.sm}}>
+          <Btn variant="ghost" size="sm" onClick={()=>setAbrirOpen(false)} disabled={busy}>Cancelar</Btn>
+          <Btn size="sm" onClick={fazerAbrir} disabled={busy}>{busy?"Abrindo…":"Abrir"}</Btn>
+        </div>
+      </Modal>)}
+
+      {sangriaOpen && (<Modal onClose={()=>!busy&&setSangriaOpen(false)} width={380}>
+        <SectionHead title="Sangria" sub="Retirada de dinheiro do caixa"/>
+        <Field label="Valor (R$)"><TextInput type="number" value={sangVal} onChange={setSangVal} placeholder="0,00"/></Field>
+        <div style={{marginTop:S.sm}}><Field label="Motivo"><TextInput value={sangMot} onChange={setSangMot} placeholder="Ex.: troco / pagamento fornecedor"/></Field></div>
+        <div style={{marginTop:S.md,display:"flex",justifyContent:"flex-end",gap:S.sm}}>
+          <Btn variant="ghost" size="sm" onClick={()=>setSangriaOpen(false)} disabled={busy}>Cancelar</Btn>
+          <Btn size="sm" onClick={fazerSangria} disabled={busy}>{busy?"…":"Registrar"}</Btn>
+        </div>
+      </Modal>)}
+
+      {fecharOpen && caixa && (<Modal onClose={()=>!busy&&setFecharOpen(false)} width={400}>
+        <SectionHead title="Fechar caixa" sub="Confira o dinheiro contado na gaveta"/>
+        <div style={{color:A.textSec,fontSize:12,marginBottom:8}}>Saldo esperado: <b style={{color:A.cyan}}>R$ {Number(caixa.saldoEsperado||0).toFixed(2)}</b></div>
+        <Field label="Valor contado (R$)"><TextInput type="number" value={vFech} onChange={setVFech} placeholder="0,00"/></Field>
+        {vFech!=="" && <div style={{marginTop:6,fontSize:11,color:(Number(vFech)-Number(caixa.saldoEsperado||0))===0?A.green:A.amber}}>Diferença: R$ {(Number(vFech)-Number(caixa.saldoEsperado||0)).toFixed(2)}</div>}
+        <div style={{marginTop:S.md,display:"flex",justifyContent:"flex-end",gap:S.sm}}>
+          <Btn variant="ghost" size="sm" onClick={()=>setFecharOpen(false)} disabled={busy}>Cancelar</Btn>
+          <Btn variant="amber" size="sm" onClick={fazerFechar} disabled={busy}>{busy?"Fechando…":"Fechar caixa"}</Btn>
+        </div>
+      </Modal>)}
+
+      {cmOpen && cmAtual && (<Modal onClose={()=>!busy&&setCmOpen(false)} width={520}>
+        <SectionHead title={`Comanda · ${cmAtual.nome}`} sub="Adicione itens, desconto e forma de pagamento"/>
+        <div style={{display:"flex",gap:6,alignItems:"flex-end",marginBottom:8}}>
+          <div style={{flex:2}}><Field label="Serviço">
+            <select value={addServId} onChange={e=>setAddServId(e.target.value)} style={selStyle}>
+              <option value="">Escolha…</option>
+              {(conf.servicos||[]).filter(s=>s.ativo!==false).map(s=>(<option key={s.id} value={s.id}>{s.nome} · R$ {s.preco}</option>))}
+            </select>
+          </Field></div>
+          <Btn variant="secondary" size="sm" onClick={addServico}>Adicionar</Btn>
+        </div>
+        <div style={{display:"flex",gap:6,alignItems:"flex-end",marginBottom:10}}>
+          <div style={{flex:2}}><Field label="Item avulso (produto)"><TextInput value={freeNome} onChange={setFreeNome} placeholder="Ex.: Pomada"/></Field></div>
+          <div style={{flex:1}}><Field label="Preço"><TextInput type="number" value={freePreco} onChange={setFreePreco} placeholder="0,00"/></Field></div>
+          <Btn variant="secondary" size="sm" onClick={addFree}>+ Item</Btn>
+        </div>
+        <div style={{background:A.bg3,border:`1px solid ${A.border}`,borderRadius:R.md,padding:"8px 10px",marginBottom:10}}>
+          {cmItens.length===0 && <div style={{color:A.textMuted,fontSize:11,padding:"8px 0",textAlign:"center"}}>Sem itens ainda.</div>}
+          {cmItens.map((it,i)=>(
+            <div key={i} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 0",borderBottom:i<cmItens.length-1?`1px solid ${A.border}`:"none"}}>
+              <div style={{flex:1,color:A.textPri,fontSize:12}}>{it.nome}</div>
+              <Btn variant="ghost" size="sm" onClick={()=>setQtd(i,-1)}>−</Btn>
+              <span style={{fontFamily:SHARED.fontMono,fontSize:12,color:A.textSec,minWidth:18,textAlign:"center"}}>{it.qtd}</span>
+              <Btn variant="ghost" size="sm" onClick={()=>setQtd(i,1)}>+</Btn>
+              <span style={{fontFamily:SHARED.fontMono,fontSize:12,color:A.green,minWidth:64,textAlign:"right"}}>R$ {((Number(it.preco)||0)*(Number(it.qtd)||1)).toFixed(2)}</span>
+              <Btn variant="ghost" size="sm" onClick={()=>removeItem(i)}>×</Btn>
+            </div>
+          ))}
+        </div>
+        <div style={{display:"flex",gap:6,alignItems:"flex-end",marginBottom:10}}>
+          <div style={{flex:1}}><Field label="Cupom"><TextInput value={cmCupom} onChange={setCmCupom} placeholder="Código"/></Field></div>
+          <Btn variant="secondary" size="sm" onClick={aplicarCupom}>Aplicar</Btn>
+          <div style={{flex:1}}><Field label="Desconto (R$)"><TextInput type="number" value={cmDesc} onChange={v=>setCmDesc(Number(v)||0)}/></Field></div>
+        </div>
+        <div style={{marginBottom:10}}>
+          <div style={{color:A.textMuted,fontSize:9,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:6}}>Forma de pagamento</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+            {metodos.map(([id,lbl])=>(
+              <div key={id} onClick={()=>setCmPgto(id)} style={{padding:"10px",borderRadius:R.md,textAlign:"center",cursor:"pointer",fontSize:12,fontWeight:600,border:`1.5px solid ${cmPgto===id?A.blue:A.border}`,background:cmPgto===id?`${A.blue}18`:A.bg3,color:cmPgto===id?A.blue:A.textSec}}>{lbl}</div>
+            ))}
+          </div>
+        </div>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",paddingTop:10,borderTop:`1px solid ${A.border}`}}>
+          <span style={{fontWeight:700,fontSize:14,color:A.textPri}}>Total</span>
+          <span style={{fontFamily:SHARED.fontMono,fontWeight:800,fontSize:20,color:A.green}}>R$ {cmTotal.toFixed(2)}</span>
+        </div>
+        <div style={{marginTop:S.md,display:"flex",justifyContent:"flex-end",gap:S.sm}}>
+          <Btn variant="ghost" size="sm" onClick={()=>setCmOpen(false)} disabled={busy}>Fechar janela</Btn>
+          <Btn variant="secondary" size="sm" onClick={salvarComanda} disabled={busy}>Salvar</Btn>
+          <Btn size="sm" onClick={fecharComanda} disabled={busy}>{busy?"…":`Fechar comanda · R$ ${cmTotal.toFixed(2)}`}</Btn>
+        </div>
+      </Modal>)}
+
+      {cupOpen && (<Modal onClose={()=>!busy&&setCupOpen(false)} width={420}>
+        <SectionHead title="Cupom" sub="Código de desconto com validade e limite de uso"/>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:S.md}}>
+          <Field label="Código"><TextInput value={cupForm.codigo} onChange={v=>setCupForm(f=>({...f,codigo:v.toUpperCase()}))} placeholder="VOLTA10"/></Field>
+          <Field label="Tipo">
+            <select value={cupForm.tipo} onChange={e=>setCupForm(f=>({...f,tipo:e.target.value}))} style={selStyle}>
+              <option value="percent">Percentual (%)</option>
+              <option value="fixo">Valor fixo (R$)</option>
+            </select>
+          </Field>
+          <Field label={cupForm.tipo==="percent"?"Valor (%)":"Valor (R$)"}><TextInput type="number" value={cupForm.valor} onChange={v=>setCupForm(f=>({...f,valor:v}))}/></Field>
+          <Field label="Validade (opcional)"><TextInput type="date" value={cupForm.validade} onChange={v=>setCupForm(f=>({...f,validade:v}))}/></Field>
+          <Field label="Limite de usos (0 = ilimitado)"><TextInput type="number" value={cupForm.usoMax} onChange={v=>setCupForm(f=>({...f,usoMax:v}))}/></Field>
+          <Field label="Ativo">
+            <select value={cupForm.ativo?"1":"0"} onChange={e=>setCupForm(f=>({...f,ativo:e.target.value==="1"}))} style={selStyle}>
+              <option value="1">Sim</option>
+              <option value="0">Não</option>
+            </select>
+          </Field>
+        </div>
+        <div style={{marginTop:S.md,display:"flex",justifyContent:"flex-end",gap:S.sm}}>
+          <Btn variant="ghost" size="sm" onClick={()=>setCupOpen(false)} disabled={busy}>Cancelar</Btn>
+          <Btn size="sm" onClick={salvarCupom} disabled={busy}>{busy?"Salvando…":"Salvar cupom"}</Btn>
+        </div>
+      </Modal>)}
     </div>
   );
 };
@@ -4543,6 +4836,7 @@ function AppInner() {
     clients: {title:"Clientes",     subtitle:`${DB.clientes.length} ativos · ${DB.clientes.filter(c=>BE.shouldFlagRisk(c)).length} em atenção · Score calculado dinamicamente`},
     crm:     {title:"CRM",          subtitle:"Segmentação inteligente · 4 automações · Motor ativo"},
     finance: {title:"Financeiro",   subtitle:"Maio 2026 · R$ 11.420 acumulado · Meta 81%"},
+    caixa:   {title:"Caixa",        subtitle:"Comandas · pagamentos · sangria · cupons"},
     loyalty: {title:"Fidelização",  subtitle:"Nível calculado por visitas reais · 4 automações"},
     waitlist:{title:"Waitlist",     subtitle:`${DB.waitlist.length} aguardando · TTL por nível · Governança ativa`},
     reports: {title:"Relatórios",   subtitle:"5 relatórios · Export CSV e PDF reais (Blob)"},
@@ -4557,6 +4851,7 @@ function AppInner() {
       case "clients":  return <ClientesPage/>;
       case "crm":      return <CRMPage/>;
       case "finance":  return <FinanceiroPage/>;
+      case "caixa":    return <CaixaPage/>;
       case "loyalty":  return <LoyaltyPage/>;
       case "waitlist": return <WaitlistPage/>;
       case "reports":  return <RelatoriosPage/>;
