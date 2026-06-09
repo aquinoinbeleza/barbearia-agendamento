@@ -20,13 +20,14 @@
  */
 
 // ─── PLANILHAS + SCHEMAS CANÔNICOS (PARTE 6.9 / 6.10) ──────────────────────
-var SHEETS = { CLIENTES:'Clientes', AGENDAMENTOS:'Agendamentos', FINANCEIRO:'Financeiro', SERVICOS:'Servicos', FEEDBACKS:'Feedbacks', FILA_ESPERA:'FilaEspera', PENDENTES:'MensagensPendentes', METRICAS:'Metricas', LOG:'Log', CAIXA:'Caixa', COMANDAS:'Comandas', CUPONS:'Cupons' };
+var SHEETS = { CLIENTES:'Clientes', AGENDAMENTOS:'Agendamentos', FINANCEIRO:'Financeiro', SERVICOS:'Servicos', FEEDBACKS:'Feedbacks', FILA_ESPERA:'FilaEspera', PENDENTES:'MensagensPendentes', METRICAS:'Metricas', LOG:'Log', CAIXA:'Caixa', COMANDAS:'Comandas', CUPONS:'Cupons', PONTOS:'Pontos' };
 
 var HEADERS = {
   // Email é APPEND-ONLY no fim (col J) — não desloca os índices canônicos existentes.
   // Dependentes (col K) também é append-only: JSON [{nome,nascimento}] dos filhos/dependentes.
   // Foto (col L) também é append-only: link da foto do cliente (no Google Drive).
-  CLIENTES:     ['ClienteID','Telefone','Nome','NomeAbreviado','UltimoAgendamento','TotalAgendamentos','IntervaloDias','Nascimento','UltimoLembrete','Email','Dependentes','Foto','Bloqueado'],
+  // Pontos (col N) é append-only: saldo de pontos de fidelidade (ERP v7).
+  CLIENTES:     ['ClienteID','Telefone','Nome','NomeAbreviado','UltimoAgendamento','TotalAgendamentos','IntervaloDias','Nascimento','UltimoLembrete','Email','Dependentes','Foto','Bloqueado','Pontos'],
   // Para (col O) também é append-only: nome do dependente quando o atendimento é p/ um filho.
   AGENDAMENTOS: ['ID','Nome','NomeAbreviado','Telefone','ClienteID','Servico','Duracao','Data','Horario','Preco','Status','CriadoEm','SinalStatus','Barbeiro','Para','Observacao'],
   FINANCEIRO:   ['Data','Tipo','Categoria','Descricao','Valor','Profissional','AgendamentoID','FormaPagamento','Status'],
@@ -42,10 +43,11 @@ var HEADERS = {
   CAIXA:        ['ID','AbertoEm','FechadoEm','ValorAbertura','ValorFechamento','TotalVendas','Sangrias','Status','Operador'],
   COMANDAS:     ['ID','CaixaID','ClienteID','Nome','Itens','Desconto','Total','FormaPagamento','Status','AbertaEm','FechadaEm'],
   CUPONS:       ['Codigo','Tipo','Valor','Validade','UsoMax','UsoCount','Ativo','CriadoEm'],
+  PONTOS:       ['Timestamp','ClienteID','Delta','Saldo','Motivo'],
 };
 
 // Índices de coluna (0-based) — espelham os mnemônicos do master
-var CLI = { ID:0, TEL:1, NOME:2, ABREV:3, ULTIMO_AG:4, TOTAL:5, INTERVALO:6, NASC:7, ULTIMO_LEM:8, EMAIL:9, DEP:10, FOTO:11, BLOQ:12 };
+var CLI = { ID:0, TEL:1, NOME:2, ABREV:3, ULTIMO_AG:4, TOTAL:5, INTERVALO:6, NASC:7, ULTIMO_LEM:8, EMAIL:9, DEP:10, FOTO:11, BLOQ:12, PONTOS:13 };
 var AG  = { ID:0, NOME:1, ABREV:2, TEL:3, CLI_ID:4, SERV:5, DUR:6, DATA:7, HORA:8, PRECO:9, STATUS:10, CRIADO:11, SINAL:12, BARBEIRO:13, PARA:14, OBS:15 };
 var MP_ = { ID:0, TS:1, TIPO:2, DESTINO:3, CONTEUDO:4, TENTATIVAS:5, ERRO:6, STATUS:7 };
 
@@ -103,7 +105,7 @@ function defaultConfig_() {
       { dia:'Sábado',  abre:'08:00', fecha:'18:00', fechado:false },
       { dia:'Domingo', abre:'—', fecha:'—', fechado:true },
     ],
-    operacao: { slotMin:15, antecedencia:60, sinalPct:30, cancelamentoH:12, intervaloRetornoDias:15, antecedenciaMaxDias:60 },
+    operacao: { slotMin:15, antecedencia:60, sinalPct:30, cancelamentoH:12, intervaloRetornoDias:15, antecedenciaMaxDias:60, comissaoPct:50 },
     // Barbeiros/profissionais — editáveis no painel admin (add/editar/excluir).
     // Começa só com o dono; o cliente escolhe o barbeiro no agendamento online.
     barbeiros: [
@@ -148,7 +150,7 @@ function seedDadosReais() {
       { dia:'Sábado',  abre:'08:00', fecha:'19:00', fechado:false },
       { dia:'Domingo', abre:'—',     fecha:'—',     fechado:true  }
     ],
-    operacao: { slotMin:15, antecedencia:60, sinalPct:30, cancelamentoH:12, intervaloRetornoDias:15, antecedenciaMaxDias:60 },
+    operacao: { slotMin:15, antecedencia:60, sinalPct:30, cancelamentoH:12, intervaloRetornoDias:15, antecedenciaMaxDias:60, comissaoPct:50 },
     barbeiros: [ { id:1, nome:'Vinícius Aquino', ativo:true } ]
   };
   var r = actionSalvarConfig_({ config: cfg });
@@ -244,6 +246,8 @@ function doPost(e) {
       case 'cupomListar':      return requireRole_(body, 'cupomListar',      function(){ return actionCupomListar_(); });
       case 'cupomSalvar':      return requireRole_(body, 'cupomSalvar',      function(){ return actionCupomSalvar_(body); });
       case 'cupomValidar':     return requireRole_(body, 'cupomValidar',     function(){ return actionCupomValidar_(body); });
+      case 'comissao':         return requireRole_(body, 'comissao',         function(){ return actionComissao_(body); });
+      case 'pontosResgatar':   return requireRole_(body, 'pontosResgatar',   function(){ return actionPontosResgatar_(body); });
       default:                 return json_(respostaErro_('acao_desconhecida'));
     }
   } catch (err) { logErro_('doPost', err); return json_(respostaErro_('erro_interno')); }
@@ -858,9 +862,12 @@ function comandaTotal_(itens, desconto) {
 function actionComandaCriar_(b) {
   var c = caixaAberto_(); if (!c) return { success:false, error:'Abra o caixa antes de criar comandas' };
   var id = 'CM-' + nowCompact_();
+  var clienteId = String(b.clienteId||'');
   var nome = sanitizar_(String(b.nome||'Cliente').trim()).slice(0,60) || 'Cliente';
-  sheet_(SHEETS.COMANDAS).appendRow([id, c.obj[CX.ID], String(b.clienteId||''), nome, '[]', 0, 0, '', 'aberta', nowISO_(), '']);
-  return { success:true, id:id };
+  var tel = telLimpo_(b.telefone || b.tel);
+  if (!clienteId && tel) { var rc = findClienteByTel_(tel); if (rc) { clienteId = rc.obj[CLI.ID]; if (rc.obj[CLI.NOME]) nome = rc.obj[CLI.NOME]; } }
+  sheet_(SHEETS.COMANDAS).appendRow([id, c.obj[CX.ID], clienteId, nome, '[]', 0, 0, '', 'aberta', nowISO_(), '']);
+  return { success:true, id:id, clienteId:clienteId, nome:nome };
 }
 function actionComandaAtualizar_(b) {
   var r = findRow_(SHEETS.COMANDAS, CM.ID, b.id); if (!r) return { success:false, error:'Comanda não encontrada' };
@@ -884,8 +891,10 @@ function actionComandaFechar_(b) {
   setCell_(SHEETS.COMANDAS, r.rowIndex, CM.STATUS, 'fechada');
   setCell_(SHEETS.COMANDAS, r.rowIndex, CM.FECHADA, nowISO_());
   if (total > 0) registrarFinanceiro_(hojeISO_(), total, 'Comanda ' + r.obj[CM.ID], r.obj[CM.NOME], r.obj[CM.ID]);
+  var pontosGanhos = 0;
+  if (r.obj[CM.CLI_ID] && total > 0) { pontosGanhos = Math.floor(total); addPontos_(r.obj[CM.CLI_ID], pontosGanhos, 'Comanda ' + r.obj[CM.ID]); } // 1 ponto por R$1
   registrarMetrica_('comanda_fechada', total, { comandaId:r.obj[CM.ID], itens:itens.length });
-  return { success:true, total:total };
+  return { success:true, total:total, pontosGanhos:pontosGanhos };
 }
 function actionComandaListar_() {
   var c = caixaAberto_();
@@ -934,6 +943,43 @@ function actionCupomValidar_(b) {
   return { success:true, codigo:cod, tipo:o[CP.TIPO], valor:Number(o[CP.VALOR])||0, desconto:desconto };
 }
 
+// PONTOS (v7) — saldo na coluna CLI.PONTOS + histórico append-only no sheet Pontos
+function addPontos_(clienteId, delta, motivo) {
+  if (!clienteId || !delta) return;
+  var r = findRow_(SHEETS.CLIENTES, CLI.ID, clienteId); if (!r) return;
+  var saldo = (Number(r.obj[CLI.PONTOS])||0) + Number(delta); if (saldo < 0) saldo = 0;
+  setCell_(SHEETS.CLIENTES, r.rowIndex, CLI.PONTOS, saldo);
+  sheet_(SHEETS.PONTOS).appendRow([nowISO_(), clienteId, Number(delta), saldo, sanitizar_(String(motivo||'')).slice(0,80)]);
+  return saldo;
+}
+function getPontos_(clienteId) { var r = findRow_(SHEETS.CLIENTES, CLI.ID, clienteId); return r ? (Number(r.obj[CLI.PONTOS])||0) : 0; }
+function actionPontosResgatar_(b) {
+  var clienteId = b.clienteId;
+  var pts = Math.abs(parseInt(b.pontos,10)||0);
+  if (!clienteId || pts <= 0) return { success:false, error:'dados_invalidos' };
+  var saldo = getPontos_(clienteId);
+  if (saldo < pts) return { success:false, error:'Saldo insuficiente (' + saldo + ' pts)' };
+  return { success:true, saldo: addPontos_(clienteId, -pts, b.motivo || 'Resgate') };
+}
+
+// COMISSÃO (v7) — atendimentos REALIZADOS do mês por barbeiro × operacao.comissaoPct
+function actionComissao_(b) {
+  var pct = Number(getConfig_().operacao.comissaoPct) || 0;
+  var mes = String(b.mes || hojeISO_().slice(0,7));
+  var ags = getAgendamentos_().filter(function(a){ return a[AG.STATUS]===STATUS.REALIZADO && String(a[AG.DATA]).slice(0,7)===mes; });
+  var porBarb = {};
+  ags.forEach(function(a){
+    var nome = String(a[AG.BARBEIRO]||'').trim() || '(sem barbeiro)';
+    if (!porBarb[nome]) porBarb[nome] = { barbeiro:nome, atendimentos:0, faturado:0 };
+    porBarb[nome].atendimentos++;
+    porBarb[nome].faturado += Number(a[AG.PRECO])||0;
+  });
+  var lista = Object.keys(porBarb).map(function(k){ var x = porBarb[k]; x.comissao = Math.round(x.faturado * pct) / 100; return x; });
+  return { success:true, mes:mes, pct:pct, barbeiros:lista,
+    totalFaturado: lista.reduce(function(s,x){ return s + x.faturado; }, 0),
+    totalComissao: lista.reduce(function(s,x){ return s + x.comissao; }, 0) };
+}
+
 // ─── AÇÕES ADMIN ────────────────────────────────────────────────────────────
 function actionDashboard_(perfil) {
   perfil = perfil || 'admin';
@@ -962,7 +1008,7 @@ function actionDashboard_(perfil) {
     return { clienteID:c[CLI.ID], nome:c[CLI.NOME], telefone:c[CLI.TEL], totalVisitas:Number(c[CLI.TOTAL])||0,
              ultimoAgendamento:c[CLI.ULTIMO_AG], ultimoLembrete:c[CLI.ULTIMO_LEM], intervaloDias:Number(c[CLI.INTERVALO])||15, diasDesde:diasDesde_(c[CLI.ULTIMO_AG]),
              score:cls.score, nivel:cls.nivel, nivelEmoji:cls.nivelEmoji, status:cls.statusLabel, statusCor:cls.statusCor, risco:shouldFlagRisk_(c[CLI.ID]), cancelamentos:contarCancelamentos_(c[CLI.ID]),
-             gasto:gastoDe_(c[CLI.ID]), proximo:proximoDe_(c[CLI.ID]), historico:historicoDe_(c[CLI.ID]), bloqueado:ehBloqueado_(c) };
+             gasto:gastoDe_(c[CLI.ID]), proximo:proximoDe_(c[CLI.ID]), historico:historicoDe_(c[CLI.ID]), bloqueado:ehBloqueado_(c), pontos:Number(c[CLI.PONTOS])||0 };
   }).sort(function(a,b){ return a.score - b.score; }); // piores primeiro (ação imediata)
   return {
     success:true, autenticado:true,
