@@ -153,6 +153,9 @@ const DEFAULT_CONFIG = {
     endereco: "Av. 28 de Abril, 1200 — Centro",
     telefone: "(31) 99999-0000",
     logoUrl: "",
+    instagram: "https://www.instagram.com/aquino.inbeleza",
+    google: "https://maps.app.goo.gl/ZPYyxRyc32MxKHCT7",
+    facebook: "https://www.facebook.com/aquino.inbeleza/",
   },
   servicos: [
     { id: 1, nome: "Corte",          preco: 45, duracao: 45,  ativo: true },
@@ -176,6 +179,7 @@ const DEFAULT_CONFIG = {
     sinalPct: 30,            // % de sinal antecipado
     cancelamentoH: 12,       // janela de cancelamento s/ multa (h)
     intervaloRetornoDias: 15,// recorrência: intervalo ideal de retorno (dias) → GAS INTERVALO_RETORNO
+    antecedenciaMaxDias: 60, // antecedência máxima p/ agendar (dias)
   },
   // Barbeiros/profissionais — add/editar/excluir no painel. Cliente escolhe no agendamento.
   barbeiros: [
@@ -3704,6 +3708,9 @@ const ConfigPage = () => {
             <Field label="Intervalo ideal de retorno (dias) · recorrência">
               <TextInput type="number" value={cfg.operacao.intervaloRetornoDias ?? 15} onChange={v=>configStore.set(c=>({...c,operacao:{...c.operacao,intervaloRetornoDias:Number(v)||0}}))}/>
             </Field>
+            <Field label="Antecedência máxima p/ agendar (dias)">
+              <TextInput type="number" value={cfg.operacao.antecedenciaMaxDias ?? 60} onChange={v=>configStore.set(c=>({...c,operacao:{...c.operacao,antecedenciaMaxDias:Number(v)||0}}))}/>
+            </Field>
           </div>
           <div style={{marginTop:S.md,background:`${A.cyan}0A`,border:`1px solid ${A.cyan}20`,borderRadius:R.md,padding:"10px 12px",color:A.textSec,fontSize:10.5}}>
             Com sinal de <b style={{color:A.cyan}}>{cfg.operacao.sinalPct}%</b>, um Combo VIP de R$ 90 exige
@@ -3730,6 +3737,9 @@ const ConfigPage = () => {
               <Field label="Endereço"><TextInput value={cfg.barbearia.endereco} onChange={v=>configStore.set(c=>({...c,barbearia:{...c.barbearia,endereco:v}}))}/></Field>
               <Field label="Telefone / WhatsApp"><TextInput value={cfg.barbearia.telefone} onChange={v=>configStore.set(c=>({...c,barbearia:{...c.barbearia,telefone:v}}))}/></Field>
               <div style={{gridColumn:"1 / -1"}}><Field label="URL do logo (https://…)"><TextInput value={cfg.barbearia.logoUrl} onChange={v=>configStore.set(c=>({...c,barbearia:{...c.barbearia,logoUrl:v}}))} placeholder="https://…/logo.png"/></Field></div>
+              <Field label="Instagram (URL)"><TextInput value={cfg.barbearia.instagram||""} onChange={v=>configStore.set(c=>({...c,barbearia:{...c.barbearia,instagram:v}}))} placeholder="https://instagram.com/…"/></Field>
+              <Field label="Facebook (URL)"><TextInput value={cfg.barbearia.facebook||""} onChange={v=>configStore.set(c=>({...c,barbearia:{...c.barbearia,facebook:v}}))} placeholder="https://facebook.com/…"/></Field>
+              <div style={{gridColumn:"1 / -1"}}><Field label="Avaliação no Google (URL de avaliar)"><TextInput value={cfg.barbearia.google||""} onChange={v=>configStore.set(c=>({...c,barbearia:{...c.barbearia,google:v}}))} placeholder="https://maps.app.goo.gl/…"/></Field></div>
             </div>
           </div>
           <div style={{marginTop:S.md,display:"flex",gap:8,justifyContent:"flex-end"}}>
