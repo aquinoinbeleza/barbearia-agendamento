@@ -64,6 +64,8 @@ var PROP = {
   BARBEIRO_KEY:'BARBEIRO_KEY', RECEPCAO_KEY:'RECEPCAO_KEY',
   // E-mail transacional (SEÇÃO 32) + alerta de token Meta expirado (SEÇÃO 39)
   EMAIL_ATIVO:'EMAIL_ATIVO', EMAIL_DONO:'EMAIL_DONO',
+  // Hardening: '1' exige assinatura HMAC válida no webhook Meta (precisa de proxy que repasse ?sig=)
+  HMAC_OBRIGATORIO:'HMAC_OBRIGATORIO',
 };
 
 var KEYWORDS = {
@@ -220,6 +222,7 @@ function doPost(e) {
       case 'barbeiroDelete':   return requireRole_(body, 'barbeiroDelete',  function(){ return actionBarbeiroDelete_(body); });
       case 'clienteBloquear':  return requireRole_(body, 'clienteBloquear', function(){ return actionClienteBloquear_(body); });
       case 'listarFila':       return requireRole_(body, 'listarFila',      function(){ return { success:true, fila: listarFilaAtiva_() }; });
+      case 'campanha':         return requireRole_(body, 'campanha',        function(){ return actionCampanha_(body); });
       default:                 return json_(respostaErro_('acao_desconhecida'));
     }
   } catch (err) { logErro_('doPost', err); return json_(respostaErro_('erro_interno')); }
@@ -251,6 +254,7 @@ var RBAC = {
   servicoCreate:   ['admin'],
   servicoUpdate:   ['admin'],
   servicoDelete:   ['admin'],
+  campanha:        ['admin'],   // F.5: disparo de campanha em lote
 };
 // Exige um perfil autorizado para a ação; injeta o perfil resolvido em fn(perfil)
 function requireRole_(body, acao, fn) {
@@ -270,13 +274,16 @@ function timingSafeEqual_(a, b) {
 }
 
 // HMAC-SHA256 do webhook Meta (X-Hub-Signature-256). GAS não lê headers em
-// doPost(e); a assinatura precisa chegar por proxy/param. Se ausente e não
-// houver APP_SECRET configurado, não bloqueia (modo dev). Em produção, exija.
+// doPost(e); a assinatura precisa chegar por proxy/param (?sig=). Por padrão
+// (dev) não bloqueia quando não dá pra validar. Para PRODUÇÃO, ligue a Script
+// Property HMAC_OBRIGATORIO='1' DEPOIS de pôr um proxy que repassa o ?sig= —
+// aí qualquer webhook sem assinatura válida é rejeitado (anti-spoofing).
 function validarAssinaturaMeta_(e) {
   var secret = getSecret_(PROP.META_APP_SECRET);
-  if (!secret) return true; // dev: sem secret configurado
+  var estrito = /^(1|true|sim)$/i.test(getSecret_(PROP.HMAC_OBRIGATORIO));
+  if (!secret) return !estrito; // sem secret: só bloqueia no modo estrito
   var assinada = (e && e.parameter && e.parameter.sig) ? e.parameter.sig : '';
-  if (!assinada) return true; // header indisponível no GAS — ver nota acima
+  if (!assinada) return !estrito; // header indisponível no GAS sem proxy — ver nota acima
   var raw = (e && e.postData && e.postData.contents) ? e.postData.contents : '';
   var bytes = Utilities.computeHmacSha256Signature(raw, secret);
   var hex = bytes.map(function(b){ var v=(b<0?b+256:b).toString(16); return v.length===1?'0'+v:v; }).join('');
@@ -480,11 +487,21 @@ function actionAgendamento_(b) {
   var tel = telLimpo_(b.telefone || b.tel);
   var data = b.data, horario = b.horario || b.hora;
   // Contrato real do front: `servico` chega como OBJETO {nome,duracao,preco}.
-  // Mantém compat com envio de campos soltos (servico string + duracao/preco).
+  // Multi-serviço: `servicos` chega como ARRAY [{nome,duracao,preco}, ...] — soma
+  // duração/preço e junta os nomes numa só linha de agendamento. Mantém compat com
+  // objeto único e com campos soltos (servico string + duracao/preco).
+  var lista = Array.isArray(b.servicos) ? b.servicos.filter(function(s){ return s && (s.nome || s.duracao || s.preco); }) : null;
   var servObj = (b.servico && typeof b.servico === 'object') ? b.servico : null;
-  var servico = servObj ? (servObj.nome || '') : (b.servico || '');
-  var duracao = parseInt(servObj ? servObj.duracao : b.duracao, 10) || 45;
-  var preco   = parseFloat(servObj ? servObj.preco : (b.preco || b.valor)) || 0;
+  var servico, duracao, preco;
+  if (lista && lista.length) {
+    servico = lista.map(function(s){ return String(s.nome || '').trim(); }).filter(Boolean).join(' + ');
+    duracao = lista.reduce(function(t, s){ return t + (parseInt(s.duracao, 10) || 0); }, 0) || 45;
+    preco   = lista.reduce(function(t, s){ return t + (parseFloat(s.preco) || 0); }, 0);
+  } else {
+    servico = servObj ? (servObj.nome || '') : (b.servico || '');
+    duracao = parseInt(servObj ? servObj.duracao : b.duracao, 10) || 45;
+    preco   = parseFloat(servObj ? servObj.preco : (b.preco || b.valor)) || 0;
+  }
   var observacao = sanitizar_(String(b.observacao || '')).slice(0, 280); // P0-5: pedido especial do cliente
   if (!nome || !tel || !data || !horario || !servico) return respostaErro_('dados_invalidos');
 
@@ -557,6 +574,14 @@ function actionCancelar_(b) {
   setCell_(SHEETS.AGENDAMENTOS, r.rowIndex, AG.STATUS, STATUS.CANCELADO);
   removerEventoCalendar_(id); // libera o slot imediatamente
   verificarFilaEspera_(r.obj[AG.DATA], r.obj[AG.HORA]); // notifica o 1º da fila
+  // Sinal pago: o sistema não estorna automaticamente — avisa cliente e dono p/
+  // tratarem devolução/crédito conforme a Política de Cancelamento.
+  if (String(r.obj[AG.SINAL]) === 'pago') {
+    var quando_ = dataBR_(r.obj[AG.DATA]) + ' às ' + r.obj[AG.HORA];
+    var telCli_ = telLimpo_(r.obj[AG.TEL]);
+    if (telCli_) enviarWhatsApp_(telCli_, '❌ Seu agendamento de ' + r.obj[AG.SERV] + ' em ' + quando_ + ' foi cancelado. Como havia um sinal pago, o valor segue a nossa Política de Cancelamento — fale com a gente por aqui para usar como crédito num novo horário ou tirar dúvidas. 💈');
+    notificarDono_('⚠️ Cancelamento COM sinal pago: ' + r.obj[AG.NOME] + ' — ' + r.obj[AG.SERV] + ' em ' + quando_ + '. Definir devolução/crédito.');
+  }
   return { success:true };
 }
 
@@ -631,6 +656,30 @@ function actionEnviarSinal_(b) {
     return { success: !pix.erro, clienteID:r.obj[CLI.ID], sinalPct:pct, valorSinal:valorSinal, pix:pix };
   }
   return { success:true, clienteID:r.obj[CLI.ID], sinalPct:pct, info:'informe agendamentoId e preco para gerar o Pix' };
+}
+
+// F.5 — Campanha em lote por segmento. O painel (admin) resolve o segmento e manda
+// mensagens já prontas [{tel, texto}]; aqui validamos, filtramos p/ telefones de
+// clientes REAIS e não bloqueados (anti-spam) e disparamos no WhatsApp. Há um teto
+// por chamada p/ caber no tempo de execução do GAS (lote maior = V2 com cursor).
+function actionCampanha_(b) {
+  var msgs = Array.isArray(b.mensagens) ? b.mensagens : [];
+  var totalReq = msgs.length;
+  if (!totalReq) return { success:false, error:'sem_destinatarios' };
+  var MAX = 120;
+  if (msgs.length > MAX) msgs = msgs.slice(0, MAX);
+  var validos = {};
+  getClientes_().forEach(function(c){ if (!ehBloqueado_(c)) validos[telLimpo_(c[CLI.TEL])] = true; });
+  var enviados = 0, ignorados = 0;
+  for (var i = 0; i < msgs.length; i++) {
+    var tel = telLimpo_(msgs[i] && msgs[i].tel);
+    var texto = String((msgs[i] && msgs[i].texto) || '').slice(0, 900).trim();
+    if (!tel || !texto || !validos[tel]) { ignorados++; continue; }
+    enviarWhatsApp_(tel, texto);
+    enviados++;
+  }
+  registrarMetrica_('campanha_disparada', enviados, { totalReq: totalReq, ignorados: ignorados });
+  return { success:true, enviados: enviados, ignorados: ignorados, truncado: (totalReq > MAX) };
 }
 
 // ─── AÇÕES ADMIN ────────────────────────────────────────────────────────────
@@ -1450,18 +1499,25 @@ function processarWebhookMP_(e, body) {
     var pay = JSON.parse(resp.getContentText());
     if (pay.status !== 'approved') return;
     var agId = pay.external_reference;
-    var r = findRow_(SHEETS.AGENDAMENTOS, AG.ID, agId);
-    if (!r) return;
-    setCell_(SHEETS.AGENDAMENTOS, r.rowIndex, AG.STATUS, STATUS.CONFIRMADO);
-    setCell_(SHEETS.AGENDAMENTOS, r.rowIndex, AG_SINAL, 'pago');
-    var o = r.obj;
-    var emailCli = '';
-    var rc = findClienteByTel_(telLimpo_(o[AG.TEL])); if (rc) emailCli = rc.obj[CLI.EMAIL] || '';
-    registrarFinanceiro_(o[AG.DATA], Number(pay.transaction_amount)||0, o[AG.SERV] + ' (sinal)', o[AG.ABREV], agId);
-    criarEventoCalendar_(agId, o[AG.DATA], o[AG.HORA], Number(o[AG.DUR])||45, o[AG.NOME], o[AG.SERV], o[AG.TEL], emailCli);
-    enviarConfirmacaoWhatsApp_(o[AG.TEL], o[AG.NOME], o[AG.SERV], o[AG.DATA], o[AG.HORA], Number(o[AG.DUR])||45, Number(o[AG.PRECO])||0);
-    enviarEmailConfirmacao_(emailCli, o[AG.NOME], o[AG.SERV], o[AG.DATA], o[AG.HORA], Number(o[AG.DUR])||45, Number(o[AG.PRECO])||0);
-    notificarDonoNovoAgendamento_(o[AG.NOME], o[AG.SERV], o[AG.DATA], o[AG.HORA]);
+    // Idempotência: o Mercado Pago reenvia o MESMO webhook várias vezes. Serializa
+    // com lock e processa uma só vez — senão duplica financeiro/Calendar/WhatsApp/e-mail.
+    var lock = LockService.getScriptLock();
+    if (!lock.tryLock(10000)) return; // outra execução já está cuidando deste pagamento
+    try {
+      var r = findRow_(SHEETS.AGENDAMENTOS, AG.ID, agId);
+      if (!r) return;
+      var o = r.obj;
+      if (String(o[AG_SINAL]) === 'pago') return; // já confirmado antes → não duplica
+      setCell_(SHEETS.AGENDAMENTOS, r.rowIndex, AG.STATUS, STATUS.CONFIRMADO);
+      setCell_(SHEETS.AGENDAMENTOS, r.rowIndex, AG_SINAL, 'pago');
+      var emailCli = '';
+      var rc = findClienteByTel_(telLimpo_(o[AG.TEL])); if (rc) emailCli = rc.obj[CLI.EMAIL] || '';
+      registrarFinanceiro_(o[AG.DATA], Number(pay.transaction_amount)||0, o[AG.SERV] + ' (sinal)', o[AG.ABREV], agId);
+      criarEventoCalendar_(agId, o[AG.DATA], o[AG.HORA], Number(o[AG.DUR])||45, o[AG.NOME], o[AG.SERV], o[AG.TEL], emailCli);
+      enviarConfirmacaoWhatsApp_(o[AG.TEL], o[AG.NOME], o[AG.SERV], o[AG.DATA], o[AG.HORA], Number(o[AG.DUR])||45, Number(o[AG.PRECO])||0);
+      enviarEmailConfirmacao_(emailCli, o[AG.NOME], o[AG.SERV], o[AG.DATA], o[AG.HORA], Number(o[AG.DUR])||45, Number(o[AG.PRECO])||0);
+      notificarDonoNovoAgendamento_(o[AG.NOME], o[AG.SERV], o[AG.DATA], o[AG.HORA]);
+    } finally { lock.releaseLock(); }
   } catch (err) { logErro_('processarWebhookMP', err); }
 }
 
@@ -1939,4 +1995,5 @@ function repararContagens() {
   detalhes.forEach(function (l) { Logger.log(l); });
   return { corrigidos: corrigidos, detalhes: detalhes };
 }
+
 
