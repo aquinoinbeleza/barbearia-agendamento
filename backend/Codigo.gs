@@ -20,7 +20,7 @@
  */
 
 // ─── PLANILHAS + SCHEMAS CANÔNICOS (PARTE 6.9 / 6.10) ──────────────────────
-var SHEETS = { CLIENTES:'Clientes', AGENDAMENTOS:'Agendamentos', FINANCEIRO:'Financeiro', SERVICOS:'Servicos', FEEDBACKS:'Feedbacks', FILA_ESPERA:'FilaEspera', PENDENTES:'MensagensPendentes', METRICAS:'Metricas', LOG:'Log' };
+var SHEETS = { CLIENTES:'Clientes', AGENDAMENTOS:'Agendamentos', FINANCEIRO:'Financeiro', SERVICOS:'Servicos', FEEDBACKS:'Feedbacks', FILA_ESPERA:'FilaEspera', PENDENTES:'MensagensPendentes', METRICAS:'Metricas', LOG:'Log', CAIXA:'Caixa', COMANDAS:'Comandas', CUPONS:'Cupons' };
 
 var HEADERS = {
   // Email é APPEND-ONLY no fim (col J) — não desloca os índices canônicos existentes.
@@ -38,6 +38,10 @@ var HEADERS = {
   // Observabilidade de negócio (SEÇÃO 41.4): log append-only de eventos
   METRICAS:     ['Timestamp','Tipo','Valor','Contexto'],
   LOG:          ['Timestamp','Nivel','Evento','Detalhe'],
+  // ERP (v6): caixa, comandas e cupons
+  CAIXA:        ['ID','AbertoEm','FechadoEm','ValorAbertura','ValorFechamento','TotalVendas','Sangrias','Status','Operador'],
+  COMANDAS:     ['ID','CaixaID','ClienteID','Nome','Itens','Desconto','Total','FormaPagamento','Status','AbertaEm','FechadaEm'],
+  CUPONS:       ['Codigo','Tipo','Valor','Validade','UsoMax','UsoCount','Ativo','CriadoEm'],
 };
 
 // Índices de coluna (0-based) — espelham os mnemônicos do master
@@ -49,6 +53,10 @@ var STATUS = { CONFIRMADO:'confirmado', PRESENCA:'presenca_confirmada', CANCELAD
 var AG_SINAL = 12; // coluna 13 (append-only) — SinalStatus: ''|pendente|pago|dispensado
 var FE = { ID:0, CLI_ID:1, TEL:2, NOME:3, SERV:4, DATA:5, HORA:6, FLEX:7, STATUS:8, NOTIF:9, EXPIRA:10, CRIADO:11 };
 var FILA_STATUS = { AGUARDANDO:'aguardando', NOTIFICADO:'notificado', CONVERTIDO:'convertido', EXPIRADO:'expirado', RECUSOU:'recusou' };
+// ERP (v6) — índices de coluna
+var CX = { ID:0, ABERTO:1, FECHADO:2, V_ABRE:3, V_FECHA:4, TOTAL:5, SANGRIAS:6, STATUS:7, OPERADOR:8 };
+var CM = { ID:0, CAIXA:1, CLI_ID:2, NOME:3, ITENS:4, DESCONTO:5, TOTAL:6, PAGAMENTO:7, STATUS:8, ABERTA:9, FECHADA:10 };
+var CP = { CODIGO:0, TIPO:1, VALOR:2, VALIDADE:3, USO_MAX:4, USO_COUNT:5, ATIVO:6, CRIADO:7 };
 
 var PROP = {
   SITE_TOKEN:'SITE_TOKEN', ADMIN_KEY:'ADMIN_KEY', CONFIG_JSON:'CONFIG_JSON',
@@ -225,6 +233,17 @@ function doPost(e) {
       case 'campanha':         return requireRole_(body, 'campanha',        function(){ return actionCampanha_(body); });
       case 'importarClientes': return requireRole_(body, 'importarClientes', function(){ return importarClientes_(body); });
       case 'estornarSinal':    return requireRole_(body, 'estornarSinal',    function(){ return estornarSinal_(body); });
+      case 'caixaStatus':      return requireRole_(body, 'caixaStatus',      function(){ return actionCaixaStatus_(); });
+      case 'caixaAbrir':       return requireRole_(body, 'caixaAbrir',       function(){ return actionCaixaAbrir_(body); });
+      case 'caixaFechar':      return requireRole_(body, 'caixaFechar',      function(){ return actionCaixaFechar_(body); });
+      case 'caixaSangria':     return requireRole_(body, 'caixaSangria',     function(){ return actionCaixaSangria_(body); });
+      case 'comandaCriar':     return requireRole_(body, 'comandaCriar',     function(){ return actionComandaCriar_(body); });
+      case 'comandaAtualizar': return requireRole_(body, 'comandaAtualizar', function(){ return actionComandaAtualizar_(body); });
+      case 'comandaFechar':    return requireRole_(body, 'comandaFechar',    function(){ return actionComandaFechar_(body); });
+      case 'comandaListar':    return requireRole_(body, 'comandaListar',    function(){ return actionComandaListar_(); });
+      case 'cupomListar':      return requireRole_(body, 'cupomListar',      function(){ return actionCupomListar_(); });
+      case 'cupomSalvar':      return requireRole_(body, 'cupomSalvar',      function(){ return actionCupomSalvar_(body); });
+      case 'cupomValidar':     return requireRole_(body, 'cupomValidar',     function(){ return actionCupomValidar_(body); });
       default:                 return json_(respostaErro_('acao_desconhecida'));
     }
   } catch (err) { logErro_('doPost', err); return json_(respostaErro_('erro_interno')); }
@@ -778,6 +797,141 @@ function estornarSinal_(b) {
     logErro_('estornarSinal', 'MP refund falhou: ' + code + ' ' + resp.getContentText());
     return { success:false, error:'O Mercado Pago recusou o estorno (' + code + ').' };
   } catch (e) { logErro_('estornarSinal', e); return { success:false, error:'falha_mp' }; }
+}
+
+// ═══ ERP (v6) — CAIXA · COMANDA · CUPONS ════════════════════════════════════
+function parseJSON_(s, fb) { try { var v = JSON.parse(s); return v == null ? fb : v; } catch (e) { return fb; } }
+function nowCompact_() { return Utilities.formatDate(new Date(), tz_(), 'yyyyMMddHHmmss') + Math.floor(Math.random()*900+100); }
+function ehVerdadeiro_(v) { return v===true || v===1 || v==='1' || v==='true' || v==='TRUE' || v==='sim'; }
+
+// CAIXA ──────────────────────────────────────────────────────────────────────
+function caixaAberto_() {
+  var rows = getRowsData_(SHEETS.CAIXA);
+  for (var i = rows.length-1; i >= 0; i--) { if (rows[i][CX.STATUS] === 'aberto') return { rowIndex:i+2, obj:rows[i] }; }
+  return null;
+}
+function actionCaixaStatus_() {
+  var c = caixaAberto_();
+  if (!c) return { success:true, aberto:false };
+  var comandas = getRowsData_(SHEETS.COMANDAS).filter(function(r){ return String(r[CM.CAIXA]) === String(c.obj[CX.ID]); });
+  var vendas = comandas.filter(function(r){ return r[CM.STATUS]==='fechada'; }).reduce(function(s,r){ return s + (Number(r[CM.TOTAL])||0); }, 0);
+  var sangrias = parseJSON_(c.obj[CX.SANGRIAS], []);
+  var totalSangria = sangrias.reduce(function(s,x){ return s + (Number(x.valor)||0); }, 0);
+  return { success:true, aberto:true, caixa:{
+    id:c.obj[CX.ID], abertoEm:String(c.obj[CX.ABERTO]), valorAbertura:Number(c.obj[CX.V_ABRE])||0,
+    vendas:vendas, sangrias:sangrias, totalSangria:totalSangria,
+    saldoEsperado:(Number(c.obj[CX.V_ABRE])||0) + vendas - totalSangria,
+  }, comandas: comandas.map(mapComanda_) };
+}
+function actionCaixaAbrir_(b) {
+  if (caixaAberto_()) return { success:false, error:'Já existe um caixa aberto' };
+  var id = 'CX-' + nowCompact_();
+  sheet_(SHEETS.CAIXA).appendRow([id, nowISO_(), '', Number(b.valorAbertura)||0, '', 0, '[]', 'aberto', sanitizar_(String(b.operador||'admin'))]);
+  return { success:true, id:id };
+}
+function actionCaixaSangria_(b) {
+  var c = caixaAberto_(); if (!c) return { success:false, error:'Nenhum caixa aberto' };
+  var valor = Number(b.valor)||0; if (valor <= 0) return { success:false, error:'Valor inválido' };
+  var sangrias = parseJSON_(c.obj[CX.SANGRIAS], []);
+  sangrias.push({ valor:valor, motivo:sanitizar_(String(b.motivo||'')).slice(0,120), ts:nowISO_() });
+  setCell_(SHEETS.CAIXA, c.rowIndex, CX.SANGRIAS, JSON.stringify(sangrias));
+  return { success:true };
+}
+function actionCaixaFechar_(b) {
+  var c = caixaAberto_(); if (!c) return { success:false, error:'Nenhum caixa aberto' };
+  var st = actionCaixaStatus_();
+  setCell_(SHEETS.CAIXA, c.rowIndex, CX.FECHADO, nowISO_());
+  setCell_(SHEETS.CAIXA, c.rowIndex, CX.V_FECHA, Number(b.valorFechamento)||0);
+  setCell_(SHEETS.CAIXA, c.rowIndex, CX.TOTAL, st.caixa.vendas);
+  setCell_(SHEETS.CAIXA, c.rowIndex, CX.STATUS, 'fechado');
+  return { success:true, vendas:st.caixa.vendas, saldoEsperado:st.caixa.saldoEsperado, diferenca:(Number(b.valorFechamento)||0) - st.caixa.saldoEsperado };
+}
+
+// COMANDA ─────────────────────────────────────────────────────────────────────
+function mapComanda_(r) {
+  return { id:r[CM.ID], clienteId:r[CM.CLI_ID]||'', nome:r[CM.NOME], itens:parseJSON_(r[CM.ITENS], []), desconto:Number(r[CM.DESCONTO])||0, total:Number(r[CM.TOTAL])||0, formaPagamento:r[CM.PAGAMENTO]||'', status:r[CM.STATUS] };
+}
+function comandaTotal_(itens, desconto) {
+  var bruto = (itens||[]).reduce(function(s,it){ return s + (Number(it.preco)||0) * (Number(it.qtd)||1); }, 0);
+  return Math.max(0, bruto - (Number(desconto)||0));
+}
+function actionComandaCriar_(b) {
+  var c = caixaAberto_(); if (!c) return { success:false, error:'Abra o caixa antes de criar comandas' };
+  var id = 'CM-' + nowCompact_();
+  var nome = sanitizar_(String(b.nome||'Cliente').trim()).slice(0,60) || 'Cliente';
+  sheet_(SHEETS.COMANDAS).appendRow([id, c.obj[CX.ID], String(b.clienteId||''), nome, '[]', 0, 0, '', 'aberta', nowISO_(), '']);
+  return { success:true, id:id };
+}
+function actionComandaAtualizar_(b) {
+  var r = findRow_(SHEETS.COMANDAS, CM.ID, b.id); if (!r) return { success:false, error:'Comanda não encontrada' };
+  if (r.obj[CM.STATUS] !== 'aberta') return { success:false, error:'Comanda já fechada' };
+  var itens = Array.isArray(b.itens) ? b.itens.map(function(it){ return { nome:sanitizar_(String(it.nome||'')).slice(0,80), preco:Number(it.preco)||0, qtd:Math.max(1, parseInt(it.qtd,10)||1) }; }) : parseJSON_(r.obj[CM.ITENS], []);
+  var desconto = Number(b.desconto)||0;
+  var total = comandaTotal_(itens, desconto);
+  setCell_(SHEETS.COMANDAS, r.rowIndex, CM.ITENS, JSON.stringify(itens));
+  setCell_(SHEETS.COMANDAS, r.rowIndex, CM.DESCONTO, desconto);
+  setCell_(SHEETS.COMANDAS, r.rowIndex, CM.TOTAL, total);
+  return { success:true, total:total };
+}
+function actionComandaFechar_(b) {
+  var r = findRow_(SHEETS.COMANDAS, CM.ID, b.id); if (!r) return { success:false, error:'Comanda não encontrada' };
+  if (r.obj[CM.STATUS] !== 'aberta') return { success:false, error:'Comanda já fechada' };
+  var itens = parseJSON_(r.obj[CM.ITENS], []);
+  if (!itens.length) return { success:false, error:'Comanda sem itens' };
+  var total = Number(r.obj[CM.TOTAL]) || comandaTotal_(itens, r.obj[CM.DESCONTO]);
+  var pgto = (b.formaPagamento && typeof b.formaPagamento === 'object') ? JSON.stringify(b.formaPagamento) : String(b.formaPagamento||'dinheiro');
+  setCell_(SHEETS.COMANDAS, r.rowIndex, CM.PAGAMENTO, pgto);
+  setCell_(SHEETS.COMANDAS, r.rowIndex, CM.STATUS, 'fechada');
+  setCell_(SHEETS.COMANDAS, r.rowIndex, CM.FECHADA, nowISO_());
+  if (total > 0) registrarFinanceiro_(hojeISO_(), total, 'Comanda ' + r.obj[CM.ID], r.obj[CM.NOME], r.obj[CM.ID]);
+  registrarMetrica_('comanda_fechada', total, { comandaId:r.obj[CM.ID], itens:itens.length });
+  return { success:true, total:total };
+}
+function actionComandaListar_() {
+  var c = caixaAberto_();
+  var rows = getRowsData_(SHEETS.COMANDAS);
+  rows = c ? rows.filter(function(r){ return String(r[CM.CAIXA]) === String(c.obj[CX.ID]); }) : rows.slice(-20);
+  return { success:true, comandas: rows.map(mapComanda_) };
+}
+
+// CUPONS ──────────────────────────────────────────────────────────────────────
+function actionCupomListar_() {
+  return { success:true, cupons: getRowsData_(SHEETS.CUPONS).map(function(r){ return {
+    codigo:r[CP.CODIGO], tipo:r[CP.TIPO], valor:Number(r[CP.VALOR])||0, validade:String(r[CP.VALIDADE]||''),
+    usoMax:Number(r[CP.USO_MAX])||0, usoCount:Number(r[CP.USO_COUNT])||0, ativo:ehVerdadeiro_(r[CP.ATIVO]) };
+  }) };
+}
+function actionCupomSalvar_(b) {
+  var cod = String(b.codigo||'').trim().toUpperCase(); if (!cod) return { success:false, error:'Código vazio' };
+  var r = findRow_(SHEETS.CUPONS, CP.CODIGO, cod);
+  var tipo = (b.tipo === 'fixo') ? 'fixo' : 'percent';
+  var valor = Number(b.valor)||0;
+  var validade = String(b.validade||'').slice(0,10);
+  var usoMax = parseInt(b.usoMax,10)||0;
+  var ativo = (b.ativo === false) ? '0' : '1';
+  if (r) {
+    setCell_(SHEETS.CUPONS, r.rowIndex, CP.TIPO, tipo); setCell_(SHEETS.CUPONS, r.rowIndex, CP.VALOR, valor);
+    setCell_(SHEETS.CUPONS, r.rowIndex, CP.VALIDADE, validade); setCell_(SHEETS.CUPONS, r.rowIndex, CP.USO_MAX, usoMax);
+    setCell_(SHEETS.CUPONS, r.rowIndex, CP.ATIVO, ativo);
+  } else {
+    sheet_(SHEETS.CUPONS).appendRow([cod, tipo, valor, validade, usoMax, 0, ativo, nowISO_()]);
+  }
+  return { success:true, codigo:cod };
+}
+function actionCupomValidar_(b) {
+  var cod = String(b.codigo||'').trim().toUpperCase();
+  var r = findRow_(SHEETS.CUPONS, CP.CODIGO, cod);
+  if (!r) return { success:false, error:'Cupom não encontrado' };
+  var o = r.obj;
+  if (!ehVerdadeiro_(o[CP.ATIVO])) return { success:false, error:'Cupom inativo' };
+  var validade = String(o[CP.VALIDADE]||'');
+  if (validade && validade < hojeISO_()) return { success:false, error:'Cupom vencido' };
+  var usoMax = Number(o[CP.USO_MAX])||0, usoCount = Number(o[CP.USO_COUNT])||0;
+  if (usoMax > 0 && usoCount >= usoMax) return { success:false, error:'Cupom esgotado' };
+  var total = Number(b.total)||0;
+  var desconto = (o[CP.TIPO] === 'percent') ? Math.round(total * (Number(o[CP.VALOR])||0)) / 100 : (Number(o[CP.VALOR])||0);
+  desconto = Math.min(desconto, total);
+  return { success:true, codigo:cod, tipo:o[CP.TIPO], valor:Number(o[CP.VALOR])||0, desconto:desconto };
 }
 
 // ─── AÇÕES ADMIN ────────────────────────────────────────────────────────────
