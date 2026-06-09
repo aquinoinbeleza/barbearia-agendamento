@@ -157,6 +157,9 @@ const STRINGS = {
   t1_para_mim:  { pt:"Para mim", en:"For me", es:"Para mí", fr:"Pour moi" },
   t1_min:       { pt:"min", en:"min", es:"min", fr:"min" },
   t1_selecione: { pt:"Selecione um serviço", en:"Select a service", es:"Selecciona un servicio", fr:"Sélectionnez un service" },
+  t1_multi_hint:{ pt:"Toque para escolher um ou mais", en:"Tap to choose one or more", es:"Toca para elegir uno o más", fr:"Touchez pour en choisir un ou plusieurs" },
+  t1_serv_um:   { pt:"serviço", en:"service", es:"servicio", fr:"service" },
+  t1_serv_varios:{ pt:"serviços", en:"services", es:"servicios", fr:"services" },
   // tela 2 — barbeiro
   t2_titulo:    { pt:"Escolha o profissional", en:"Choose the professional", es:"Elige el profesional", fr:"Choisissez le professionnel" },
   t2_sub:       { pt:"Quem você quer que faça seu atendimento?", en:"Who would you like to attend you?", es:"¿Quién quieres que te atienda?", fr:"Qui souhaitez-vous pour votre rendez-vous ?" },
@@ -210,6 +213,8 @@ const STRINGS = {
   lbl_horario:  { pt:"Horário", en:"Time", es:"Hora", fr:"Heure" },
   lbl_local:    { pt:"Local", en:"Location", es:"Lugar", fr:"Lieu" },
   ok_lembrete:  { pt:"Você receberá lembretes no WhatsApp: 24h e 1h antes.", en:"You'll get WhatsApp reminders: 24h and 1h before.", es:"Recibirás recordatorios por WhatsApp: 24h y 1h antes.", fr:"Vous recevrez des rappels WhatsApp : 24h et 1h avant." },
+  ok_add_cal:   { pt:"Adicionar à agenda", en:"Add to calendar", es:"Agregar al calendario", fr:"Ajouter à l'agenda" },
+  ok_share_wa:  { pt:"Compartilhar", en:"Share", es:"Compartir", fr:"Partager" },
   // perfil
   pf_titulo:    { pt:"Seu perfil", en:"Your profile", es:"Tu perfil", fr:"Votre profil" },
   pf_seus_dados:{ pt:"Seus dados", en:"Your details", es:"Tus datos", fr:"Vos informations" },
@@ -502,6 +507,27 @@ const proximosDias = (n=14) => {
 };
 const isoDate = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 const hojeISO = () => isoDate(new Date());
+// Monta um arquivo .ics (iCalendar) p/ "Adicionar à agenda". Horário em UTC (Z)
+// derivado da hora local do aparelho — o app de calendário converte de volta p/ a
+// mesma hora de parede que o cliente viu na tela.
+const montarICS = ({ titulo, inicio, durMin, local, descricao }) => {
+  const fim = new Date(inicio.getTime() + (durMin || 60) * 60000);
+  const z = (d) => `${d.getUTCFullYear()}${String(d.getUTCMonth()+1).padStart(2,"0")}${String(d.getUTCDate()).padStart(2,"0")}T${String(d.getUTCHours()).padStart(2,"0")}${String(d.getUTCMinutes()).padStart(2,"0")}${String(d.getUTCSeconds()).padStart(2,"0")}Z`;
+  const esc = (s) => String(s||"").replace(/\\/g,"\\\\").replace(/;/g,"\\;").replace(/,/g,"\\,").replace(/\r?\n/g,"\\n");
+  return [
+    "BEGIN:VCALENDAR","VERSION:2.0","PRODID:-//AQUINO//Agendamento//PT","CALSCALE:GREGORIAN","METHOD:PUBLISH",
+    "BEGIN:VEVENT",
+    "UID:aq-"+inicio.getTime()+"@aquino.inbeleza",
+    "DTSTAMP:"+z(new Date()),
+    "DTSTART:"+z(inicio),
+    "DTEND:"+z(fim),
+    "SUMMARY:"+esc(titulo),
+    "LOCATION:"+esc(local),
+    "DESCRIPTION:"+esc(descricao),
+    "BEGIN:VALARM","ACTION:DISPLAY","DESCRIPTION:"+esc(titulo),"TRIGGER:-PT1H","END:VALARM",
+    "END:VEVENT","END:VCALENDAR",
+  ].join("\r\n");
+};
 // "Hoje" no fuso de São Paulo: vira à meia-noite de Brasília, igual para todos
 // os usuários (independe do fuso do aparelho). Usado na "Inspiração do dia".
 const dataSaoPaulo = () => {
@@ -1000,7 +1026,7 @@ function Portal() {
   const [salvandoPerfil, setSalvandoPerfil] = useState(false);     // Fatia A — tela de edição
   const [servicos, setServicos] = useState([]);
   const [barbeiros, setBarbeiros] = useState([]);
-  const [servSel, setServSel] = useState(null);
+  const [servSel, setServSel] = useState([]); // multi-serviço: lista de serviços escolhidos
   const [barbSel, setBarbSel] = useState(null);
   const [dataSel, setDataSel] = useState(null);
   const [horaSel, setHoraSel] = useState(null);
@@ -1098,13 +1124,19 @@ function Portal() {
     setStep(1);                   // cliente novo → agendamento
   };
 
+  // ── multi-serviço: derivados (compat — aceita array ou objeto único) ──
+  const servArr = Array.isArray(servSel) ? servSel : (servSel ? [servSel] : []);
+  const servTotalPreco = servArr.reduce((t,s)=>t+(Number(s.preco)||0),0);
+  const servTotalDur   = servArr.reduce((t,s)=>t+(Number(s.duracao)||0),0);
+  const servNomes      = servArr.map(s=>s.nome).filter(Boolean).join(" + ");
+
   // ── Passo 3: carregar horários ──
   useEffect(() => {
-    if (step!==3 || !dataSel || !servSel) return;
+    if (step!==3 || !dataSel || !servArr.length) return;
     setLoadingSlots(true); setHoraSel(null);
     (async () => {
       try {
-        const r = await api.slots(isoDate(dataSel), servSel.duracao);
+        const r = await api.slots(isoDate(dataSel), servTotalDur);
         const livres = (r && Array.isArray(r.slots)) ? r.slots : (demo ? DEMO_SLOTS : []);
         setSlots(livres);
       } catch (e) { setSlots(demo ? DEMO_SLOTS : []); }
@@ -1133,7 +1165,8 @@ function Portal() {
         dependentes: depsParaBackend(dependentes),                               // lista de filhos
         para: (paraQuem >= 0 && dependentes[paraQuem]) ? dependentes[paraQuem].nome : "", // p/ quem é o corte
         data: isoDate(dataSel), horario: horaSel,
-        servico: { nome: servSel.nome, duracao: servSel.duracao, preco: servSel.preco },
+        servico: { nome: servNomes, duracao: servTotalDur, preco: servTotalPreco }, // compat: backend antigo grava 1 linha combinada
+        servicos: servArr.map(s => ({ nome: s.nome, duracao: s.duracao, preco: s.preco })),
         barbeiro: barbSel ? barbSel.nome : "", observacao: obs.trim(),
       });
       if (r && r._demo) { setResultado({ demo:true }); setStep(6); }
@@ -1150,7 +1183,7 @@ function Portal() {
     try {
       const r = await api.reagendar(reagendandoId, isoDate(dataSel), horaSel, numeroFinal(ddi, tel));
       if (r && (r.success || r._demo)) {
-        setReagendandoId(null); setServSel(null); setDataSel(null); setHoraSel(null);
+        setReagendandoId(null); setServSel([]); setDataSel(null); setHoraSel(null);
         await carregarMeus(numeroFinal(ddi, tel));
         setAviso({ tipo:"ok", txt:"Horário remarcado! Você recebe a confirmação no WhatsApp." });
         setStep(HOME);
@@ -1218,13 +1251,13 @@ function Portal() {
   // iniciar reagendamento de um agendamento
   const iniciarReagendar = (ag) => {
     setReagendandoId(ag.id);
-    setServSel({ nome: ag.servico, duracao: ag.duracao || 60, preco: ag.preco || 0 });
+    setServSel([{ nome: ag.servico, duracao: ag.duracao || 60, preco: ag.preco || 0 }]);
     setDataSel(null); setHoraSel(null); setErro("");
     setStep(3);
   };
 
   const resetTudo = () => {
-    setStep(0); setTel(""); setDdi("55"); setPaisIso("BR"); setServSel(null); setBarbSel(null); setDataSel(null); setHoraSel(null);
+    setStep(0); setTel(""); setDdi("55"); setPaisIso("BR"); setServSel([]); setBarbSel(null); setDataSel(null); setHoraSel(null);
     setNome(""); setSobrenome(""); setEmail(""); setNascimento(""); setObs("");
     setDependentes([]); setParaQuem(-1); setFotoUrl("");
     setResultado(null); setClienteExistente(null); setReagendandoId(null);
@@ -1233,14 +1266,46 @@ function Portal() {
 
   // ── novo agendamento sem deslogar (botão da tela de sucesso) ──
   const novoAgendamento = () => {
-    setServSel(null); setBarbSel(null); setDataSel(null); setHoraSel(null);
+    setServSel([]); setBarbSel(null); setDataSel(null); setHoraSel(null);
     setParaQuem(-1); setObs(""); setErro(""); setResultado(null);
     setStep(1);
   };
 
+  // ── tela de sucesso: baixar .ics e compartilhar no WhatsApp ──
+  const baixarICS = () => {
+    if (!dataSel || !horaSel || !servArr.length) return;
+    const [hh, mm] = String(horaSel).split(":").map(Number);
+    const inicio = new Date(dataSel.getFullYear(), dataSel.getMonth(), dataSel.getDate(), hh || 0, mm || 0, 0, 0);
+    const ics = montarICS({
+      titulo: `${servNomes} — ${BARBEARIA.nome}`,
+      inicio,
+      durMin: servTotalDur || 60,
+      local: BARBEARIA.endereco,
+      descricao: [`${BARBEARIA.nome} ${BARBEARIA.sub}`, barbSel ? barbSel.nome : "", BARBEARIA.instagram].filter(Boolean).join(" · "),
+    });
+    const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "aquino-agendamento.ics";
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+  };
+  const compartilharWhatsApp = () => {
+    const dataTxt = dataSel ? `${DIAS[dataSel.getDay()]}, ${dataSel.getDate()}/${String(dataSel.getMonth()+1).padStart(2,"0")}` : "";
+    const linhas = [
+      `✅ ${t("ok_titulo")}`,
+      `${BARBEARIA.nome} ${BARBEARIA.sub}`,
+      `${t("lbl_servico")}: ${servNomes}`,
+      barbSel ? `${t("lbl_barbeiro")}: ${barbSel.nome}` : "",
+      `${t("lbl_data")}: ${dataTxt} ${horaSel || ""}`.trim(),
+      `${t("lbl_local")}: ${BARBEARIA.endereco}`,
+    ].filter(Boolean);
+    window.open("https://wa.me/?text=" + encodeURIComponent(linhas.join("\n")), "_blank");
+  };
+
   // navegação da barra inferior
   const irPara = (destino) => {
-    if (destino === 1) { setReagendandoId(null); setServSel(null); setBarbSel(null); }
+    if (destino === 1) { setReagendandoId(null); setServSel([]); setBarbSel(null); }
     if ((destino === HOME || destino === HIST) && tel && ENV.hasBackend) carregarMeus(numeroFinal(ddi, tel));
     setStep(destino);
   };
@@ -1350,7 +1415,7 @@ function Portal() {
               )}
               <div style={{color:T.ink,fontWeight:700,fontSize:15}}>{t("hm_nenhum")}</div>
               <div style={{color:T.muted,fontSize:13,margin:"4px 0 12px"}}>{t("hm_que_tal")}</div>
-              <button onClick={()=>{ setReagendandoId(null); setServSel(null); setStep(1); }} className="aq-btn" style={{background:`linear-gradient(150deg,${T.brass},${T.brassDeep})`,border:"none",borderRadius:11,padding:"12px 22px",cursor:"pointer",color:"#fff",fontWeight:700,fontSize:14,fontFamily:T.sans}}>{diasDesdeUltima != null ? t("hm_agendar_denovo") : t("hm_agendar")}</button>
+              <button onClick={()=>{ setReagendandoId(null); setServSel([]); setStep(1); }} className="aq-btn" style={{background:`linear-gradient(150deg,${T.brass},${T.brassDeep})`,border:"none",borderRadius:11,padding:"12px 22px",cursor:"pointer",color:"#fff",fontWeight:700,fontSize:14,fontFamily:T.sans}}>{diasDesdeUltima != null ? t("hm_agendar_denovo") : t("hm_agendar")}</button>
             </div>
           )}
         </div>
@@ -1569,22 +1634,26 @@ function Portal() {
           </div>
         </div>
       )}
+      <div style={{padding:"10px 22px 0",fontSize:12,color:T.muted}}>{t("t1_multi_hint")}</div>
       <div style={{padding:"8px 22px 0",display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
         {servicos.map(sv=>{
-          const sel = servSel && servSel.id===sv.id;
+          const sel = servArr.some(s=>s.id===sv.id);
           return (
-            <div key={sv.id} className="aq-card-pick" onClick={()=>setServSel(sv)} style={{
+            <div key={sv.id} className="aq-card-pick" onClick={()=>setServSel(prev=>{ const arr=Array.isArray(prev)?prev:(prev?[prev]:[]); return arr.some(s=>s.id===sv.id) ? arr.filter(s=>s.id!==sv.id) : [...arr, sv]; })} style={{
               padding:"14px",borderRadius:14,cursor:"pointer",background:T.card,
               border:`1.5px solid ${sel?T.brass:T.line}`,boxShadow:sel?"0 8px 20px -12px rgba(193,138,61,.6)":"none",
             }}>
-              <div style={{fontWeight:700,fontSize:14,lineHeight:1.25,color:T.ink}}>{sv.nome}</div>
+              <div style={{fontWeight:700,fontSize:14,lineHeight:1.25,color:T.ink}}>{sel?"✓ ":""}{sv.nome}</div>
               <div style={{color:T.muted,fontSize:12,marginTop:6}}>{sv.duracao} min</div>
               <div style={{color:T.brass,fontWeight:700,fontSize:15,marginTop:2}}>{money(sv.preco)}</div>
             </div>
           );
         })}
       </div>
-      <Bottom comBarra><Primary onClick={()=>setStep(2)} disabled={!servSel}>{servSel?`${t("continuar")} · ${money(servSel.preco)}`:t("t1_selecione")}</Primary></Bottom>
+      <Bottom comBarra>
+        {servArr.length>0 && <div style={{textAlign:"center",fontSize:12,color:T.muted,marginBottom:8}}>{servArr.length} {servArr.length===1?t("t1_serv_um"):t("t1_serv_varios")} · {servTotalDur} min</div>}
+        <Primary onClick={()=>setStep(2)} disabled={!servArr.length}>{servArr.length?`${t("continuar")} · ${money(servTotalPreco)}`:t("t1_selecione")}</Primary>
+      </Bottom>
       <div style={{height:80}}/>
       <BottomNav ativo={1} onNav={irPara} />
     </Shell>
@@ -1621,7 +1690,7 @@ function Portal() {
   // PASSO 3 — Data e horário (também usado no reagendamento)
   if (step===3) return (
     <Shell step={2} total={5} onToggleTema={onToggleTema}>
-      <Header titulo={reagendandoId?t("t3_novo_h"):t("t3_data_hora")} sub={reagendandoId?t("t3_remarc_sub",{x:servSel?.nome}):`${servSel?.nome} · ${barbSel?.nome}`} onBack={()=> reagendandoId ? setStep(HOME) : setStep(2)}/>
+      <Header titulo={reagendandoId?t("t3_novo_h"):t("t3_data_hora")} sub={reagendandoId?t("t3_remarc_sub",{x:servNomes}):`${servNomes} · ${barbSel?.nome}`} onBack={()=> reagendandoId ? setStep(HOME) : setStep(2)}/>
       <div style={{padding:"8px 0 0"}}>
         <div style={{display:"flex",gap:8,overflowX:"auto",padding:"0 22px 4px",scrollbarWidth:"none"}}>
           {proximosDias(14).map((d,i)=>{
@@ -1653,7 +1722,7 @@ function Portal() {
               <button onClick={async ()=>{
                 setFilaMsg("");
                 try {
-                  const r = await api.registrarFila({ tel: numeroFinal(ddi, tel), data: isoDate(dataSel), horario: "qualquer", servico: servSel, flexibilidadeData: "mesmo_dia", nome: (clienteExistente && clienteExistente.nome) || nome });
+                  const r = await api.registrarFila({ tel: numeroFinal(ddi, tel), data: isoDate(dataSel), horario: "qualquer", servico: servNomes, flexibilidadeData: "mesmo_dia", nome: (clienteExistente && clienteExistente.nome) || nome });
                   if (r && r._demo) setFilaMsg("Modo demonstração: fila simulada.");
                   else if (r && r.success) setFilaMsg(r.mensagem || "Pronto! Avisamos por WhatsApp se abrir vaga neste dia. 🔔");
                   else setFilaMsg((r && r.error) || "Não foi possível entrar na fila.");
@@ -1701,14 +1770,14 @@ function Portal() {
       <div style={{padding:"4px 22px 0"}}>
         <div style={{background:T.card,border:`1px solid ${T.line}`,borderRadius:16,padding:18}}>
           {(paraQuem>=0 && dependentes[paraQuem]) && <Linha label={t("lbl_para")} valor={dependentes[paraQuem].nome}/>}
-          <Linha label={t("lbl_servico")} valor={servSel?.nome}/>
+          <Linha label={t("lbl_servico")} valor={servNomes}/>
           <Linha label={t("lbl_barbeiro")} valor={barbSel?.nome}/>
           <Linha label={t("lbl_data")} valor={dataSel && `${DIAS[dataSel.getDay()]}, ${dataSel.getDate()} de ${MESES_L[dataSel.getMonth()]}`}/>
           <Linha label={t("lbl_horario")} valor={horaSel}/>
-          <Linha label="Duração" valor={`${servSel?.duracao} min`}/>
+          <Linha label="Duração" valor={`${servTotalDur} min`}/>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:12,paddingTop:12,borderTop:`1px dashed ${T.line}`}}>
             <span style={{fontWeight:700,fontSize:15,color:T.ink}}>Total</span>
-            <span style={{fontFamily:T.serif,fontWeight:700,fontSize:22,color:T.brass}}>{money(servSel?.preco)}</span>
+            <span style={{fontFamily:T.serif,fontWeight:700,fontSize:22,color:T.brass}}>{money(servTotalPreco)}</span>
           </div>
         </div>
         <div style={{marginTop:6,marginBottom:4,display:"flex",flexDirection:"column",alignItems:"center"}}>
@@ -1800,7 +1869,7 @@ function Portal() {
       <div style={{padding:"0 22px"}}>
         <div style={{background:T.card,border:`1px solid ${T.line}`,borderRadius:16,padding:18,textAlign:"left"}}>
           {(paraQuem>=0 && dependentes[paraQuem]) && <Linha label={t("lbl_para")} valor={dependentes[paraQuem].nome}/>}
-          <Linha label={t("lbl_servico")} valor={servSel?.nome}/>
+          <Linha label={t("lbl_servico")} valor={servNomes}/>
           <Linha label={t("lbl_barbeiro")} valor={barbSel?.nome}/>
           <Linha label={t("lbl_data")} valor={dataSel && `${DIAS[dataSel.getDay()]}, ${dataSel.getDate()}/${String(dataSel.getMonth()+1).padStart(2,"0")}`}/>
           <Linha label={t("lbl_horario")} valor={horaSel}/>
@@ -1808,6 +1877,12 @@ function Portal() {
         </div>
         {(resultado?.demo||demo) && <p style={{textAlign:"center",fontSize:11,color:T.muted,marginTop:14}}>Modo demonstração — conecte o backend (VITE_GAS_URL) para gravar de verdade.</p>}
         {!(resultado?.demo||demo) && <p style={{textAlign:"center",fontSize:13,color:T.muted,marginTop:16,lineHeight:1.5}}>{t("ok_lembrete")}</p>}
+        {servArr.length > 0 && dataSel && horaSel && (
+          <div style={{display:"flex",gap:10,marginTop:16}}>
+            <button onClick={baixarICS} className="aq-btn" style={{flex:1,padding:"12px",borderRadius:13,border:`1.5px solid ${T.brassLine}`,background:T.brassTint,color:T.brass,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:T.sans,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>📅 {t("ok_add_cal")}</button>
+            <button onClick={compartilharWhatsApp} className="aq-btn" style={{flex:1,padding:"12px",borderRadius:13,border:"none",background:T.wa,color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:T.sans,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>↗ {t("ok_share_wa")}</button>
+          </div>
+        )}
       </div>
       <Bottom>
         <Primary onClick={novoAgendamento}>{t("ok_novo")}</Primary>
@@ -1841,3 +1916,4 @@ export default function BookingPortal() {
     </ThemeCtx.Provider>
   );
 }
+
