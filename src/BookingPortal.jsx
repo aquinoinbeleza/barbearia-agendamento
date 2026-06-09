@@ -1029,6 +1029,8 @@ function Portal() {
   const [barbeiros, setBarbeiros] = useState([]);
   const [servSel, setServSel] = useState([]); // multi-serviço: lista de serviços escolhidos
   const [bizCfg, setBizCfg] = useState(null);  // dados da barbearia (links/endereço) vindos do backend
+  const [bizOp, setBizOp] = useState(null);    // operacao (antecedência máxima) vinda do backend
+  const [calBase, setCalBase] = useState(() => { const d = new Date(); d.setHours(0,0,0,0); d.setDate(1); return d; }); // mês exibido no calendário
   const [barbSel, setBarbSel] = useState(null);
   const [dataSel, setDataSel] = useState(null);
   const [horaSel, setHoraSel] = useState(null);
@@ -1060,7 +1062,7 @@ function Portal() {
         const [rs, rb, rc] = await Promise.all([api.listarServicos(), api.listarBarbeiros(), api.getConfig()]);
         setServicos(rs && rs.servicos ? rs.servicos.filter(s=>s.ativo!==false) : DEMO_SERVICOS);
         setBarbeiros(rb && rb.barbeiros ? rb.barbeiros.filter(b=>b.ativo!==false) : DEMO_BARBEIROS);
-        if (rc && rc.config && rc.config.barbearia) setBizCfg(rc.config.barbearia);
+        if (rc && rc.config) { if (rc.config.barbearia) setBizCfg(rc.config.barbearia); if (rc.config.operacao) setBizOp(rc.config.operacao); }
       } catch (e) { setServicos(DEMO_SERVICOS); setBarbeiros(DEMO_BARBEIROS); }
     })();
   }, []);
@@ -1139,6 +1141,22 @@ function Portal() {
   const fbUrl = biz.facebook || LINKS.facebook;
   const googleUrl = biz.google || LINKS.google;
   const endereco = biz.endereco || BARBEARIA.endereco;
+
+  // ── calendário mensal (Passo 3): grade do mês + limites (passado / antecedência máx) ──
+  const hojeMid = new Date(); hojeMid.setHours(0,0,0,0);
+  const maxDiasCal = Number(bizOp && bizOp.antecedenciaMaxDias) || 60;
+  const maxData = new Date(hojeMid); maxData.setDate(maxData.getDate() + maxDiasCal);
+  const ehMesAtual = calBase.getFullYear()===hojeMid.getFullYear() && calBase.getMonth()===hojeMid.getMonth();
+  const podeAvancarMes = new Date(calBase.getFullYear(), calBase.getMonth()+1, 1) <= maxData;
+  const celulasMes = (() => {
+    const ano = calBase.getFullYear(), mes = calBase.getMonth();
+    const offset = new Date(ano, mes, 1).getDay(); // 0=Dom
+    const diasNoMes = new Date(ano, mes+1, 0).getDate();
+    const arr = [];
+    for (let k=0;k<offset;k++) arr.push(null);
+    for (let dia=1;dia<=diasNoMes;dia++){ const d = new Date(ano, mes, dia); arr.push({ d, disabled: d < hojeMid || d > maxData }); }
+    return arr;
+  })();
 
   // ── Passo 3: carregar horários ──
   useEffect(() => {
@@ -1701,21 +1719,29 @@ function Portal() {
   if (step===3) return (
     <Shell step={2} total={5} onToggleTema={onToggleTema}>
       <Header titulo={reagendandoId?t("t3_novo_h"):t("t3_data_hora")} sub={reagendandoId?t("t3_remarc_sub",{x:servNomes}):`${servNomes} · ${barbSel?.nome}`} onBack={()=> reagendandoId ? setStep(HOME) : setStep(2)}/>
-      <div style={{padding:"8px 0 0"}}>
-        <div style={{display:"flex",gap:8,overflowX:"auto",padding:"0 22px 4px",scrollbarWidth:"none"}}>
-          {proximosDias(14).map((d,i)=>{
-            const sel = dataSel && isoDate(dataSel)===isoDate(d);
-            const hoje = i===0;
+      <div style={{padding:"8px 22px 0"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+          <button onClick={()=>!ehMesAtual && setCalBase(p=>{ const d=new Date(p); d.setMonth(d.getMonth()-1); return d; })} disabled={ehMesAtual} aria-label="Mês anterior"
+            style={{background:"none",border:"none",color:ehMesAtual?T.line:T.brass,fontSize:24,lineHeight:1,cursor:ehMesAtual?"default":"pointer",fontFamily:T.sans,padding:"0 10px"}}>‹</button>
+          <div style={{fontWeight:700,fontSize:15,color:T.ink,fontFamily:T.serif,textTransform:"capitalize"}}>{MESES_L[calBase.getMonth()]} {calBase.getFullYear()}</div>
+          <button onClick={()=>podeAvancarMes && setCalBase(p=>{ const d=new Date(p); d.setMonth(d.getMonth()+1); return d; })} disabled={!podeAvancarMes} aria-label="Próximo mês"
+            style={{background:"none",border:"none",color:podeAvancarMes?T.brass:T.line,fontSize:24,lineHeight:1,cursor:podeAvancarMes?"pointer":"default",fontFamily:T.sans,padding:"0 10px"}}>›</button>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:4,marginBottom:4}}>
+          {DIAS.map((d,i)=>(<div key={i} style={{textAlign:"center",fontSize:10,color:T.muted,fontWeight:600}}>{d}</div>))}
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:4}}>
+          {celulasMes.map((cell,i)=>{
+            if (!cell) return <div key={i}/>;
+            const sel = dataSel && isoDate(dataSel)===isoDate(cell.d);
             return (
-              <div key={i} className="aq-card-pick" onClick={()=>setDataSel(d)} style={{
-                flexShrink:0,width:58,padding:"10px 0",borderRadius:13,textAlign:"center",cursor:"pointer",
-                background:sel?`linear-gradient(150deg,${T.brass},${T.brassDeep})`:T.card,
-                border:`1.5px solid ${sel?T.brass:T.line}`,color:sel?"#fff":T.ink,
-              }}>
-                <div style={{fontSize:11,opacity:.8}}>{hoje?"Hoje":DIAS[d.getDay()]}</div>
-                <div style={{fontSize:19,fontWeight:700,margin:"2px 0"}}>{d.getDate()}</div>
-                <div style={{fontSize:10,opacity:.7}}>{MESES[d.getMonth()]}</div>
-              </div>
+              <div key={i} onClick={()=>!cell.disabled && setDataSel(cell.d)} style={{
+                aspectRatio:"1/1",display:"flex",alignItems:"center",justifyContent:"center",borderRadius:10,
+                cursor:cell.disabled?"default":"pointer",fontSize:14,fontWeight:sel?700:500,
+                background:sel?`linear-gradient(150deg,${T.brass},${T.brassDeep})`:(cell.disabled?"transparent":T.card),
+                border:`1.5px solid ${sel?T.brass:(cell.disabled?"transparent":T.line)}`,
+                color:cell.disabled?T.line:(sel?"#fff":T.ink),
+              }}>{cell.d.getDate()}</div>
             );
           })}
         </div>
