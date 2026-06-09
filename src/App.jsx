@@ -104,13 +104,16 @@ const api = {
   caixaAbrir:   (key, valorAbertura) => api._post({ action: "caixaAbrir", key, valorAbertura }),
   caixaFechar:  (key, valorFechamento) => api._post({ action: "caixaFechar", key, valorFechamento }),
   caixaSangria: (key, valor, motivo) => api._post({ action: "caixaSangria", key, valor, motivo }),
-  comandaCriar: (key, clienteId, nome) => api._post({ action: "comandaCriar", key, clienteId, nome }),
+  comandaCriar: (key, telefone, nome) => api._post({ action: "comandaCriar", key, telefone, nome }),
   comandaAtualizar: (key, id, itens, desconto) => api._post({ action: "comandaAtualizar", key, id, itens, desconto }),
   comandaFechar: (key, id, formaPagamento) => api._post({ action: "comandaFechar", key, id, formaPagamento }),
   comandaListar: (key) => api._post({ action: "comandaListar", key }),
   cupomListar:  (key) => api._post({ action: "cupomListar", key }),
   cupomSalvar:  (key, cupom) => api._post({ action: "cupomSalvar", key, ...cupom }),
   cupomValidar: (key, codigo, total) => api._post({ action: "cupomValidar", key, codigo, total }),
+  // v7: comissão (relatório) + resgate de pontos
+  comissao: (key, mes) => api._post({ action: "comissao", key, mes }),
+  pontosResgatar: (key, clienteId, pontos, motivo) => api._post({ action: "pontosResgatar", key, clienteId, pontos, motivo }),
   // extensões de contrato (degradam p/ modo demo sem backend):
   reagendar:     (agendamentoId, novoHorario, tel) => api._post({ action: "reagendar", agendamentoId, novoHorario, tel }),
   enviarLembrete:(tel, clienteId) => api._post({ action: "enviarLembrete", tel, clienteId }),
@@ -198,6 +201,7 @@ const DEFAULT_CONFIG = {
     cancelamentoH: 12,       // janela de cancelamento s/ multa (h)
     intervaloRetornoDias: 15,// recorrência: intervalo ideal de retorno (dias) → GAS INTERVALO_RETORNO
     antecedenciaMaxDias: 60, // antecedência máxima p/ agendar (dias)
+    comissaoPct: 50,         // % de comissão do profissional (relatório de comissões)
   },
   // Barbeiros/profissionais — add/editar/excluir no painel. Cliente escolhe no agendamento.
   barbeiros: [
@@ -517,6 +521,7 @@ const adaptDashboard = (r) => {
     ultimoLembrete: c.ultimoLembrete ? String(c.ultimoLembrete) : "Nunca enviado",
     historico: Array.isArray(c.historico) ? c.historico.map(h=>({ d: String(h.data||"").split("-").reverse().join("/"), s: h.servico, v: Number(h.preco)||0 })) : [],  // F.4: histórico real
     bloqueado: !!c.bloqueado,               // F.3: cliente bloqueado (blacklist)
+    pontos: Number(c.pontos) || 0,          // v7: saldo de pontos de fidelidade
   }));
   const agenda = (r.agenda || []).map(a => ({
     id: a.id,
@@ -2557,6 +2562,18 @@ const ClientesPage = () => {
                 </div>
               </div>
             )}
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:`${A.cyan}0A`,border:`1px solid ${A.cyan}20`,borderRadius:R.md,padding:"8px 11px",marginTop:S.sm}}>
+              <div>
+                <div style={{color:A.textMuted,fontSize:9,textTransform:"uppercase",letterSpacing:"0.06em"}}>Pontos de fidelidade</div>
+                <div style={{color:A.cyan,fontSize:18,fontWeight:800,fontFamily:SHARED.fontMono}}>{sel.pontos||0} pts</div>
+              </div>
+              <Btn variant="secondary" size="sm" disabled={!ENV.hasBackend||!(sel.pontos>0)} onClick={async ()=>{
+                const v = typeof window!=="undefined" ? window.prompt(`Resgatar quantos pontos de ${sel.nome}? (saldo: ${sel.pontos})`) : null;
+                const pts = parseInt(v,10); if(!pts||pts<=0) return;
+                const r = await api.pontosResgatar(adminKeyStore.get(), sel.id, pts, "Resgate no painel");
+                toast(r&&r.success?`Resgatado · saldo ${r.saldo} pts`:(r&&r.error)||"Não foi possível resgatar", r&&r.success?A.green:A.amber, r&&r.success?"check":"warning");
+              }}>Resgatar</Btn>
+            </div>
             <Btn variant={sel.bloqueado?"secondary":"danger"} size="sm" style={{width:"100%",justifyContent:"center",marginTop:S.sm}} onClick={async ()=>{
               if(!ENV.hasBackend){ toast("Bloqueio disponível só com o backend conectado", A.amber, "warning"); return; }
               const acao = sel.bloqueado ? "desbloquear" : "bloquear";
@@ -2824,10 +2841,11 @@ const CaixaPage = () => {
   const [abrirOpen, setAbrirOpen] = useState(false); const [vAbertura, setVAbertura] = useState("");
   const [sangriaOpen, setSangriaOpen] = useState(false); const [sangVal, setSangVal] = useState(""); const [sangMot, setSangMot] = useState("");
   const [fecharOpen, setFecharOpen] = useState(false); const [vFech, setVFech] = useState("");
-  const [novoNome, setNovoNome] = useState("");
+  const [novoNome, setNovoNome] = useState(""); const [novoTel, setNovoTel] = useState("");
+  const [comissao, setComissao] = useState(null);
   const [cmOpen, setCmOpen] = useState(false); const [cmAtual, setCmAtual] = useState(null);
   const [cmItens, setCmItens] = useState([]); const [cmDesc, setCmDesc] = useState(0);
-  const [cmCupom, setCmCupom] = useState(""); const [cmPgto, setCmPgto] = useState("dinheiro");
+  const [cmCupom, setCmCupom] = useState(""); const [cmPag, setCmPag] = useState({ dinheiro:"", pix:"", credito:"", debito:"" });
   const [addServId, setAddServId] = useState(""); const [freeNome, setFreeNome] = useState(""); const [freePreco, setFreePreco] = useState("");
   const [cupOpen, setCupOpen] = useState(false);
   const [cupForm, setCupForm] = useState({ codigo:"", tipo:"percent", valor:"", validade:"", usoMax:"", ativo:true });
@@ -2840,6 +2858,7 @@ const CaixaPage = () => {
       const r = await api.caixaStatus(key());
       if (r && r.aberto) { setCaixa(r.caixa); setComandas(r.comandas||[]); } else { setCaixa(null); setComandas([]); }
       const rc = await api.cupomListar(key()); if (rc && rc.cupons) setCupons(rc.cupons);
+      const rcom = await api.comissao(key(), ""); if (rcom && rcom.success) setComissao(rcom);
     } catch(e){}
   };
   useEffect(()=>{ recarregar(); }, []);
@@ -2860,11 +2879,11 @@ const CaixaPage = () => {
     if (r && r.success) { toast(`Caixa fechado · vendas R$ ${Number(r.vendas||0).toFixed(2)} · diferença R$ ${Number(r.diferenca||0).toFixed(2)}`, A.green, "check"); setFecharOpen(false); setVFech(""); recarregar(); }
     else toast((r&&r.error)||"Não foi possível fechar", A.amber, "warning");
   };
-  const abrirComanda = (c) => { setCmAtual(c); setCmItens(c.itens||[]); setCmDesc(c.desconto||0); setCmCupom(""); setCmPgto("dinheiro"); setAddServId(""); setFreeNome(""); setFreePreco(""); setCmOpen(true); };
+  const abrirComanda = (c) => { setCmAtual(c); setCmItens(c.itens||[]); setCmDesc(c.desconto||0); setCmCupom(""); setCmPag({ dinheiro:"", pix:"", credito:"", debito:"" }); setAddServId(""); setFreeNome(""); setFreePreco(""); setCmOpen(true); };
   const novaComanda = async () => {
-    if (!novoNome.trim()) { toast("Informe o nome do cliente", A.amber, "warning"); return; }
-    setBusy(true); const r = await api.comandaCriar(key(), "", novoNome.trim()); setBusy(false);
-    if (r && r.success) { const nome = novoNome.trim(); setNovoNome(""); await recarregar(); abrirComanda({ id:r.id, nome, itens:[], desconto:0, total:0, status:"aberta" }); }
+    if (!novoNome.trim() && !novoTel.trim()) { toast("Informe o nome (ou telefone) do cliente", A.amber, "warning"); return; }
+    setBusy(true); const r = await api.comandaCriar(key(), novoTel.trim(), novoNome.trim()); setBusy(false);
+    if (r && r.success) { setNovoNome(""); setNovoTel(""); await recarregar(); abrirComanda({ id:r.id, nome:r.nome||novoNome.trim()||"Cliente", itens:[], desconto:0, total:0, status:"aberta" }); }
     else toast((r&&r.error)||"Não foi possível criar a comanda", A.amber, "warning");
   };
   const addServico = () => { const sv=(conf.servicos||[]).find(s=>String(s.id)===String(addServId)); if(!sv) return; setCmItens(p=>[...p,{nome:sv.nome,preco:Number(sv.preco)||0,qtd:1}]); setAddServId(""); };
@@ -2886,10 +2905,13 @@ const CaixaPage = () => {
   const fecharComanda = async () => {
     if (!cmAtual) return;
     if (!cmItens.length) { toast("Adicione itens antes de fechar", A.amber, "warning"); return; }
+    const soma = ["dinheiro","pix","credito","debito"].reduce((s,m)=>s+(Number(cmPag[m])||0),0);
+    if (Math.abs(soma - cmTotal) > 0.01) { toast(`Pagamento (R$ ${soma.toFixed(2)}) não bate com o total (R$ ${cmTotal.toFixed(2)})`, A.amber, "warning"); return; }
+    const pag = {}; ["dinheiro","pix","credito","debito"].forEach(m=>{ const v=Number(cmPag[m])||0; if(v>0) pag[m]=v; });
     setBusy(true);
     await api.comandaAtualizar(key(), cmAtual.id, cmItens, Number(cmDesc)||0);
-    const r = await api.comandaFechar(key(), cmAtual.id, cmPgto); setBusy(false);
-    if (r && r.success) { toast(`Comanda fechada · R$ ${Number(r.total||0).toFixed(2)} (${cmPgto})`, A.green, "check"); setCmOpen(false); recarregar(); }
+    const r = await api.comandaFechar(key(), cmAtual.id, pag); setBusy(false);
+    if (r && r.success) { toast(`Comanda fechada · R$ ${Number(r.total||0).toFixed(2)}${r.pontosGanhos?` · +${r.pontosGanhos} pts`:""}`, A.green, "check"); setCmOpen(false); recarregar(); }
     else toast((r&&r.error)||"Não foi possível fechar", A.amber, "warning");
   };
   const salvarCupom = async () => {
@@ -2904,6 +2926,8 @@ const CaixaPage = () => {
   const selStyle = {background:A.bg1,border:`1px solid ${A.border}`,borderRadius:R.md,padding:"8px 11px",color:A.textPri,fontSize:12,fontFamily:SHARED.fontAdmin,outline:"none",width:"100%"};
   const cmTotal = totalComanda(cmItens, cmDesc);
   const metodos = [["dinheiro","Dinheiro"],["pix","Pix"],["credito","Crédito"],["debito","Débito"]];
+  const pagSoma = metodos.reduce((s,m)=>s+(Number(cmPag[m[0]])||0),0);
+  const fmtPag = (fp) => { if(!fp) return ""; try { const o=typeof fp==="string"?JSON.parse(fp):fp; if(o&&typeof o==="object"){ const L={dinheiro:"Dinheiro",pix:"Pix",credito:"Crédito",debito:"Débito"}; return Object.keys(o).map(k=>`${L[k]||k} R$ ${Number(o[k]).toFixed(2)}`).join(" · "); } } catch(e){} return String(fp); };
 
   return (
     <div style={{display:"flex",flexDirection:"column",gap:S.lg}}>
@@ -2928,7 +2952,8 @@ const CaixaPage = () => {
             <Btn variant="secondary" size="sm" onClick={()=>setSangriaOpen(true)}>Sangria</Btn>
             <Btn variant="amber" size="sm" onClick={()=>setFecharOpen(true)}>Fechar caixa</Btn>
             <div style={{flex:1,minWidth:120}}/>
-            <input value={novoNome} onChange={e=>setNovoNome(e.target.value)} placeholder="Nome do cliente" style={{...selStyle,width:180}}/>
+            <input value={novoNome} onChange={e=>setNovoNome(e.target.value)} placeholder="Nome do cliente" style={{...selStyle,width:160}}/>
+            <input value={novoTel} onChange={e=>setNovoTel(e.target.value)} placeholder="WhatsApp (p/ pontos)" style={{...selStyle,width:160}}/>
             <Btn size="sm" onClick={novaComanda} disabled={busy}><Ico n="plus" size={11} color="#fff"/>Nova comanda</Btn>
           </div>
           <Card pad={false}>
@@ -2943,7 +2968,7 @@ const CaixaPage = () => {
                   <Avatar nome={c.nome} size={30} color={c.status==="aberta"?A.cyan:A.textMuted}/>
                   <div style={{flex:1,minWidth:0}}>
                     <div style={{color:A.textPri,fontSize:12,fontWeight:600}}>{c.nome}</div>
-                    <div style={{color:A.textSec,fontSize:10}}>{(c.itens||[]).length} item(s){c.status==="fechada"&&c.formaPagamento?` · ${c.formaPagamento}`:""}</div>
+                    <div style={{color:A.textSec,fontSize:10}}>{(c.itens||[]).length} item(s){c.status==="fechada"&&c.formaPagamento?` · ${fmtPag(c.formaPagamento)}`:""}</div>
                   </div>
                   <span style={{color:A.green,fontSize:12,fontFamily:SHARED.fontMono}}>R$ {Number(c.total||0).toFixed(2)}</span>
                   <Badge color={c.status==="aberta"?A.cyan:A.textMuted} dot>{c.status==="aberta"?"Aberta":"Fechada"}</Badge>
@@ -2971,6 +2996,31 @@ const CaixaPage = () => {
             </div>
           </Card>
         </>
+      )}
+
+      {comissao && comissao.barbeiros && (
+        <Card pad={false}>
+          <div style={{padding:`${S.md}px ${S.xl}px`,borderBottom:`1px solid ${A.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div>
+              <div style={{color:A.textPri,fontWeight:700,fontSize:13}}>Comissões · {comissao.mes}</div>
+              <div style={{color:A.textMuted,fontSize:10,marginTop:2}}>{comissao.pct}% sobre atendimentos realizados no mês</div>
+            </div>
+            <div style={{textAlign:"right"}}>
+              <div style={{color:A.green,fontSize:16,fontWeight:800,fontFamily:SHARED.fontMono}}>R$ {Number(comissao.totalComissao||0).toFixed(2)}</div>
+              <div style={{color:A.textMuted,fontSize:9}}>de R$ {Number(comissao.totalFaturado||0).toFixed(2)} faturado</div>
+            </div>
+          </div>
+          <div style={{padding:`${S.sm}px ${S.md}px`}}>
+            {comissao.barbeiros.length===0 && <div style={{color:A.textMuted,fontSize:11,padding:"12px 0",textAlign:"center"}}>Nenhum atendimento realizado neste mês.</div>}
+            {comissao.barbeiros.map((b,i)=>(
+              <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 8px",borderBottom:i<comissao.barbeiros.length-1?`1px solid ${A.border}`:"none"}}>
+                <div style={{flex:1,color:A.textPri,fontSize:12,fontWeight:600}}>{b.barbeiro}</div>
+                <div style={{color:A.textSec,fontSize:10}}>{b.atendimentos} atend. · R$ {Number(b.faturado||0).toFixed(2)}</div>
+                <span style={{color:A.green,fontSize:12,fontFamily:SHARED.fontMono,minWidth:80,textAlign:"right"}}>R$ {Number(b.comissao||0).toFixed(2)}</span>
+              </div>
+            ))}
+          </div>
+        </Card>
       )}
 
       {abrirOpen && (<Modal onClose={()=>!busy&&setAbrirOpen(false)} width={380}>
@@ -3038,12 +3088,19 @@ const CaixaPage = () => {
           <div style={{flex:1}}><Field label="Desconto (R$)"><TextInput type="number" value={cmDesc} onChange={v=>setCmDesc(Number(v)||0)}/></Field></div>
         </div>
         <div style={{marginBottom:10}}>
-          <div style={{color:A.textMuted,fontSize:9,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:6}}>Forma de pagamento</div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+            <div style={{color:A.textMuted,fontSize:9,textTransform:"uppercase",letterSpacing:"0.06em"}}>Pagamento (pode dividir)</div>
+            <button onClick={()=>setCmPag({dinheiro:cmTotal.toFixed(2),pix:"",credito:"",debito:""})} style={{background:"none",border:"none",color:A.blue,fontSize:10,cursor:"pointer",fontFamily:SHARED.fontAdmin}}>Tudo em dinheiro</button>
+          </div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
             {metodos.map(([id,lbl])=>(
-              <div key={id} onClick={()=>setCmPgto(id)} style={{padding:"10px",borderRadius:R.md,textAlign:"center",cursor:"pointer",fontSize:12,fontWeight:600,border:`1.5px solid ${cmPgto===id?A.blue:A.border}`,background:cmPgto===id?`${A.blue}18`:A.bg3,color:cmPgto===id?A.blue:A.textSec}}>{lbl}</div>
+              <div key={id} style={{display:"flex",alignItems:"center",gap:6,background:A.bg3,border:`1px solid ${A.border}`,borderRadius:R.md,padding:"6px 8px"}}>
+                <span style={{fontSize:11,color:A.textSec,width:56}}>{lbl}</span>
+                <input type="number" value={cmPag[id]} onChange={e=>setCmPag(p=>({...p,[id]:e.target.value}))} placeholder="0,00" style={{flex:1,minWidth:0,background:A.bg1,border:`1px solid ${A.border}`,borderRadius:6,padding:"5px 7px",color:A.textPri,fontSize:12,fontFamily:SHARED.fontMono,outline:"none"}}/>
+              </div>
             ))}
           </div>
+          <div style={{marginTop:6,fontSize:10,color:Math.abs(pagSoma-cmTotal)<0.01?A.green:A.amber}}>Pago: R$ {pagSoma.toFixed(2)} · Falta: R$ {Math.max(0,cmTotal-pagSoma).toFixed(2)}</div>
         </div>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",paddingTop:10,borderTop:`1px solid ${A.border}`}}>
           <span style={{fontWeight:700,fontSize:14,color:A.textPri}}>Total</span>
@@ -4134,6 +4191,9 @@ const ConfigPage = () => {
             </Field>
             <Field label="Antecedência máxima p/ agendar (dias)">
               <TextInput type="number" value={cfg.operacao.antecedenciaMaxDias ?? 60} onChange={v=>configStore.set(c=>({...c,operacao:{...c.operacao,antecedenciaMaxDias:Number(v)||0}}))}/>
+            </Field>
+            <Field label="Comissão do profissional (%)">
+              <TextInput type="number" value={cfg.operacao.comissaoPct ?? 50} onChange={v=>configStore.set(c=>({...c,operacao:{...c.operacao,comissaoPct:Number(v)||0}}))}/>
             </Field>
           </div>
           <div style={{marginTop:S.md,background:`${A.cyan}0A`,border:`1px solid ${A.cyan}20`,borderRadius:R.md,padding:"10px 12px",color:A.textSec,fontSize:10.5}}>
