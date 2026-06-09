@@ -223,6 +223,8 @@ function doPost(e) {
       case 'clienteBloquear':  return requireRole_(body, 'clienteBloquear', function(){ return actionClienteBloquear_(body); });
       case 'listarFila':       return requireRole_(body, 'listarFila',      function(){ return { success:true, fila: listarFilaAtiva_() }; });
       case 'campanha':         return requireRole_(body, 'campanha',        function(){ return actionCampanha_(body); });
+      case 'importarClientes': return requireRole_(body, 'importarClientes', function(){ return importarClientes_(body); });
+      case 'estornarSinal':    return requireRole_(body, 'estornarSinal',    function(){ return estornarSinal_(body); });
       default:                 return json_(respostaErro_('acao_desconhecida'));
     }
   } catch (err) { logErro_('doPost', err); return json_(respostaErro_('erro_interno')); }
@@ -255,6 +257,8 @@ var RBAC = {
   servicoUpdate:   ['admin'],
   servicoDelete:   ['admin'],
   campanha:        ['admin'],   // F.5: disparo de campanha em lote
+  importarClientes:['admin'],   // v5: importação de clientes (CSV)
+  estornarSinal:   ['admin'],   // v5: estorno do sinal (Mercado Pago)
 };
 // Exige um perfil autorizado para a ação; injeta o perfil resolvido em fn(perfil)
 function requireRole_(body, acao, fn) {
@@ -490,6 +494,8 @@ function actionAgendamento_(b) {
   var nome = String(b.nome || '').trim();
   var tel = telLimpo_(b.telefone || b.tel);
   var data = b.data, horario = b.horario || b.hora;
+  // Agendamento MANUAL pelo painel (admin): pula a antecedência mín/máx e dispensa o sinal.
+  var ehAdminManual = (b.origem === 'admin') && validarAdmin_(b.key);
   // Contrato real do front: `servico` chega como OBJETO {nome,duracao,preco}.
   // Multi-serviço: `servicos` chega como ARRAY [{nome,duracao,preco}, ...] — soma
   // duração/preço e junta os nomes numa só linha de agendamento. Mantém compat com
@@ -516,7 +522,7 @@ function actionAgendamento_(b) {
   // Antecedência: não agenda no passado/cedo demais (operacao.antecedencia, min) nem longe
   // demais (operacao.antecedenciaMaxDias, padrão 60). Rede de segurança no servidor.
   var iniDt = parseDataHora_(data, horario);
-  if (iniDt) {
+  if (iniDt && !ehAdminManual) {
     var op = getConfig_().operacao;
     var agoraMs = Date.now();
     if (iniDt.getTime() < agoraMs + (Number(op.antecedencia) || 0) * 60000)
@@ -543,7 +549,7 @@ function actionAgendamento_(b) {
   var para = sanitizar_(String(b.para || '').trim()).slice(0,60); // dependente (col O), vazio = titular
   var ag = { id:id, data:data, horario:horario, servico:servico, duracao:duracao, preco:preco };
   var clienteObj = findClienteByTel_(tel);
-  var exigeSinal = deveExigirSinal_(clienteObj ? clienteObj.obj : null, ag);
+  var exigeSinal = ehAdminManual ? false : deveExigirSinal_(clienteObj ? clienteObj.obj : null, ag);
 
   var statusInicial = exigeSinal ? STATUS.AGUARDANDO : STATUS.CONFIRMADO;
   var sinalStatus = exigeSinal ? 'pendente' : '';
@@ -699,6 +705,81 @@ function actionCampanha_(b) {
   return { success:true, enviados: enviados, ignorados: ignorados, truncado: (totalReq > MAX) };
 }
 
+// v5 — Importação de clientes (CSV) pelo painel. Faz upsert SEM contar visita nem
+// disparar marco de fidelidade (é uma lista de contatos, não atendimentos). Em
+// cliente já existente, só preenche campos vazios (não sobrescreve nome/email/nasc).
+function importarClientes_(b) {
+  var lista = Array.isArray(b.clientes) ? b.clientes : [];
+  if (!lista.length) return { success:false, error:'lista_vazia' };
+  var MAX = 500; if (lista.length > MAX) lista = lista.slice(0, MAX);
+  var rows = getClientes_();
+  var idx = {}, maxId = 0;
+  for (var i = 0; i < rows.length; i++) {
+    idx[telLimpo_(rows[i][CLI.TEL])] = { rowIndex: i + 2, obj: rows[i] };
+    var n = parseInt(String(rows[i][CLI.ID]).replace('CLI-', ''), 10) || 0; if (n > maxId) maxId = n;
+  }
+  var novos = 0, atualizados = 0, ignorados = 0;
+  for (var j = 0; j < lista.length; j++) {
+    var c = lista[j] || {};
+    var nome = sanitizar_(String(c.nome || '').trim());
+    var tel = telLimpo_(c.telefone || c.tel);
+    if (!nome || tel.length < 8) { ignorados++; continue; }
+    var nasc = String(c.nascimento || '').trim();
+    var email = String(c.email || '').trim();
+    var ex = idx[tel];
+    if (ex) {
+      if (ex.obj) {
+        if (nasc && !ex.obj[CLI.NASC]) setCell_(SHEETS.CLIENTES, ex.rowIndex, CLI.NASC, sanitizar_(nasc));
+        if (email && validarEmail_(email) && !ex.obj[CLI.EMAIL]) setCell_(SHEETS.CLIENTES, ex.rowIndex, CLI.EMAIL, email);
+      }
+      atualizados++;
+    } else {
+      maxId++;
+      var id = 'CLI-' + ('00' + maxId).slice(-3);
+      sheet_(SHEETS.CLIENTES).appendRow([
+        id, tel, nome, sanitizar_(formatarNomeAbrev_(nome)), '', 0, validarIntervalo_(null), sanitizar_(nasc), '',
+        (email && validarEmail_(email)) ? email : '', '', '',
+      ]);
+      idx[tel] = { rowIndex: -1, obj: null }; // evita duplicar o mesmo telefone dentro do lote
+      novos++;
+    }
+  }
+  registrarMetrica_('clientes_importados', novos, { atualizados: atualizados, ignorados: ignorados });
+  return { success:true, novos: novos, atualizados: atualizados, ignorados: ignorados, total: lista.length };
+}
+
+// v5 — Estorno do sinal pelo painel (admin). Chama o refund do Mercado Pago no
+// pagamento salvo (pay_<agId>), marca SinalStatus='estornado' e avisa o cliente.
+function estornarSinal_(b) {
+  var agId = b.agendamentoId;
+  if (!agId) return { success:false, error:'dados_invalidos' };
+  var r = findRow_(SHEETS.AGENDAMENTOS, AG.ID, agId);
+  if (!r) return { success:false, error:'Agendamento não encontrado' };
+  if (String(r.obj[AG.SINAL]) !== 'pago') return { success:false, error:'Este agendamento não tem sinal pago' };
+  var payId = props_().getProperty('pay_' + agId);
+  if (!payId) return { success:false, error:'Pagamento do sinal não encontrado (sem ID do Mercado Pago)' };
+  var token = getSecret_(PROP.MP_ACCESS_TOKEN);
+  if (!token) return { success:false, error:'mp_nao_configurado' };
+  try {
+    var resp = UrlFetchApp.fetch('https://api.mercadopago.com/v1/payments/' + payId + '/refunds', {
+      method:'post', contentType:'application/json',
+      headers:{ Authorization:'Bearer '+token, 'X-Idempotency-Key':'refund_'+agId },
+      payload: '{}', muteHttpExceptions:true,
+    });
+    var code = resp.getResponseCode();
+    var data = {}; try { data = JSON.parse(resp.getContentText()); } catch(e){}
+    if (code >= 200 && code < 300 && (data.status === 'approved' || data.id)) {
+      setCell_(SHEETS.AGENDAMENTOS, r.rowIndex, AG_SINAL, 'estornado');
+      var tel = telLimpo_(r.obj[AG.TEL]);
+      if (tel) enviarWhatsApp_(tel, '💸 O sinal do seu agendamento de ' + r.obj[AG.SERV] + ' foi estornado. O valor volta pela mesma forma de pagamento em alguns dias úteis. Qualquer dúvida, fale com a gente.');
+      registrarMetrica_('sinal_estornado', Number(r.obj[AG.PRECO])||0, { agendamentoId:agId });
+      return { success:true, refundId: data.id || '', status: data.status || 'ok' };
+    }
+    logErro_('estornarSinal', 'MP refund falhou: ' + code + ' ' + resp.getContentText());
+    return { success:false, error:'O Mercado Pago recusou o estorno (' + code + ').' };
+  } catch (e) { logErro_('estornarSinal', e); return { success:false, error:'falha_mp' }; }
+}
+
 // ─── AÇÕES ADMIN ────────────────────────────────────────────────────────────
 function actionDashboard_(perfil) {
   perfil = perfil || 'admin';
@@ -735,7 +816,7 @@ function actionDashboard_(perfil) {
     permissoes: { editarConfig: perfil==='admin', verMetricas: perfil!=='barbeiro', editarServicos: perfil==='admin' },
     clientes: clientes, // front (MUDANÇA 1): if (d.clientes) setAdminAuth(true)
     kpis: { agendamentosHoje:doDia.length, confirmados:doDia.filter(function(a){return a[AG.STATUS]===STATUS.CONFIRMADO;}).length, faturadoHoje:faturadoHoje, totalClientes:clientes.length },
-    agenda: doDia.map(function(a){ return { id:a[AG.ID], clienteId:a[AG.CLI_ID]||null, horario:a[AG.HORA], nome:a[AG.NOME], servico:a[AG.SERV], status:a[AG.STATUS], preco:Number(a[AG.PRECO])||0, obs:a[AG.OBS]||'' }; }),
+    agenda: doDia.map(function(a){ return { id:a[AG.ID], clienteId:a[AG.CLI_ID]||null, horario:a[AG.HORA], nome:a[AG.NOME], servico:a[AG.SERV], status:a[AG.STATUS], preco:Number(a[AG.PRECO])||0, sinalStatus:a[AG.SINAL]||'', obs:a[AG.OBS]||'' }; }),
   };
 }
 
