@@ -97,6 +97,8 @@ const api = {
   reagendar:     (agendamentoId, novoHorario, tel) => api._post({ action: "reagendar", agendamentoId, novoHorario, tel }),
   enviarLembrete:(tel, clienteId) => api._post({ action: "enviarLembrete", tel, clienteId }),
   enviarSinal:   (tel, clienteId, valor) => api._post({ action: "enviarSinal", tel, clienteId, valor }),
+  // F.5: campanha em lote — o painel envia as mensagens já renderizadas [{tel, texto}]
+  campanha:      (key, mensagens) => api._post({ action: "campanha", key, mensagens }),
   // ping: usado pelo botão "Testar conexão GAS" no Sistema
   ping: async () => {
     if (!ENV.hasBackend) return { ok: false, demo: true, ms: 0 };
@@ -2465,6 +2467,18 @@ const ClientesPage = () => {
 const CRMPage = () => {
   const toast = useToast();
   const [seg, setSeg] = useState("risco");
+  // F.5 — wizard de campanha em lote (segmento → editor c/ tags → preview → disparo)
+  const [wizOpen, setWizOpen] = useState(false);
+  const [wizStep, setWizStep] = useState(1);
+  const [wizMsg, setWizMsg] = useState("Olá {nome}! Sentimos sua falta na AQUINO. Que tal agendar seu próximo horário? 💈");
+  const [wizCupom, setWizCupom] = useState("");
+  const [wizEnviando, setWizEnviando] = useState(false);
+  const primeiroNome = (n) => String(n||"").trim().split(/\s+/)[0] || "";
+  const renderTpl = (tpl, c) => String(tpl||"")
+    .replace(/\{nome\}/g, primeiroNome(c?.nome))
+    .replace(/\{data\}/g, (c?.proximo && c.proximo!=="—") ? c.proximo : "")
+    .replace(/\{servico\}/g, (c?.historico && c.historico[0] && c.historico[0].s) || "")
+    .replace(/\{cupom\}/g, wizCupom || "");
   const segmentos=[
     {id:"risco",label:"Em Risco",count:DB.clientes.filter(c=>BE.shouldFlagRisk(c)).length,color:A.red,desc:"Score < 5 ou cancelamentos recorrentes"},
     {id:"reativacao",label:"Reativar",count:DB.clientes.filter(c=>BE.shouldSuggestRecurrence(c)).length,color:A.purple,desc:"+30 dias sem visitar, score alto"},
@@ -2483,6 +2497,27 @@ const CRMPage = () => {
     {status:"ativo",titulo:"Reativação VIP (score 8+)",disparo:"+35 dias",ultima:"Ontem",enviados:1},
     {status:"pausado",titulo:"Sinal parcial (score < 4)",disparo:"Manhã do dia",ultima:"Quinta",enviados:2},
   ];
+  const dispararCampanha = async () => {
+    const recips = getClientes(seg).filter(c => c.telefone && !c.bloqueado);
+    if (!ENV.hasBackend) { toast("Conecte o backend (VITE_GAS_URL) para disparar", A.amber, "warning"); return; }
+    if (!recips.length) { toast("Nenhum cliente com telefone neste segmento", A.amber, "warning"); return; }
+    if (!wizMsg.trim()) { toast("Escreva a mensagem da campanha", A.amber, "warning"); return; }
+    setWizEnviando(true);
+    try {
+      const key = adminKeyStore.get() || (typeof window!=="undefined" ? window.prompt("Chave de admin (ADMIN_KEY do GAS):") : "");
+      const mensagens = recips.map(c => ({ tel: c.telefone, texto: renderTpl(wizMsg, c) }));
+      const r = await api.campanha(key, mensagens);
+      if (r && r.success) {
+        toast(`Campanha enviada: ${r.enviados} ${r.enviados===1?"mensagem":"mensagens"}${r.ignorados?` · ${r.ignorados} ignoradas`:""}`, A.green, "check");
+        setWizOpen(false); setWizStep(1);
+      } else {
+        toast((r && r.error) ? `Falha: ${r.error}` : "Não foi possível disparar a campanha", A.red, "warning");
+      }
+    } catch (e) {
+      toast("Falha de conexão ao disparar", A.red, "warning");
+    }
+    setWizEnviando(false);
+  };
   return (
     <div style={{display:"flex",flexDirection:"column",gap:S.lg}}>
       <div style={{display:"flex",gap:S.md}}>
@@ -2513,7 +2548,10 @@ const CRMPage = () => {
               ))}
             </div>
             <div style={{padding:`${S.sm}px ${S.xl}px`}}>
-              <div style={{color:A.textMuted,fontSize:10,marginBottom:S.sm}}>{segmentos.find(s=>s.id===seg)?.desc}</div>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:S.sm}}>
+                <div style={{color:A.textMuted,fontSize:10}}>{segmentos.find(s=>s.id===seg)?.desc}</div>
+                <Btn variant="secondary" size="sm" onClick={()=>{ setWizStep(1); setWizOpen(true); }}>📣 Campanha</Btn>
+              </div>
               {getClientes(seg).map((c,i)=>{
                 const pr=BE.prioridade(c.score);
                 return (
@@ -2552,6 +2590,69 @@ const CRMPage = () => {
           </Card>
         </div>
       </div>
+      {wizOpen && (
+        <div onClick={()=>!wizEnviando && setWizOpen(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,padding:S.lg}}>
+          <div onClick={e=>e.stopPropagation()} style={{width:"100%",maxWidth:460,maxHeight:"90vh",overflowY:"auto"}}>
+            <Card>
+              <SectionHead title={`📣 Campanha · ${segmentos.find(s=>s.id===seg)?.label||""}`} sub={`Passo ${wizStep} de 3 · ${getClientes(seg).filter(c=>c.telefone).length} com WhatsApp`}/>
+              {wizStep===1 && (
+                <div style={{display:"flex",flexDirection:"column",gap:S.md}}>
+                  <div style={{color:A.textSec,fontSize:12,lineHeight:1.5}}>Você vai enviar uma mensagem por WhatsApp para os clientes do segmento <b style={{color:A.textPri}}>{segmentos.find(s=>s.id===seg)?.label}</b>.</div>
+                  <div style={{background:A.bg3,border:`1px solid ${A.border}`,borderRadius:R.md,padding:"12px 14px"}}>
+                    <div style={{color:A.textMuted,fontSize:9,textTransform:"uppercase",letterSpacing:"0.07em"}}>Destinatários com WhatsApp</div>
+                    <div style={{color:A.textPri,fontSize:24,fontWeight:800,fontFamily:SHARED.fontMono}}>{getClientes(seg).filter(c=>c.telefone).length}</div>
+                    {getClientes(seg).filter(c=>!c.telefone).length>0 && <div style={{color:A.amber,fontSize:10,marginTop:2}}>{getClientes(seg).filter(c=>!c.telefone).length} sem telefone — não recebem</div>}
+                  </div>
+                  <div style={{display:"flex",justifyContent:"flex-end",gap:S.sm}}>
+                    <Btn variant="ghost" size="sm" onClick={()=>setWizOpen(false)}>Cancelar</Btn>
+                    <Btn size="sm" onClick={()=>setWizStep(2)}>Próximo</Btn>
+                  </div>
+                </div>
+              )}
+              {wizStep===2 && (
+                <div style={{display:"flex",flexDirection:"column",gap:S.md}}>
+                  <div>
+                    <div style={{color:A.textSec,fontSize:11,marginBottom:6}}>Toque para inserir variáveis:</div>
+                    <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                      {["{nome}","{data}","{servico}","{cupom}"].map(tag=>(
+                        <Btn key={tag} variant="secondary" size="sm" onClick={()=>setWizMsg(m=>m+" "+tag)}>{tag}</Btn>
+                      ))}
+                    </div>
+                  </div>
+                  <textarea value={wizMsg} onChange={e=>setWizMsg(e.target.value)} rows={5}
+                    style={{width:"100%",resize:"vertical",padding:"12px 14px",fontSize:13,lineHeight:1.5,borderRadius:R.md,border:`1px solid ${A.border}`,background:A.bg3,color:A.textPri,fontFamily:SHARED.fontAdmin,outline:"none",boxSizing:"border-box"}}/>
+                  <div>
+                    <div style={{color:A.textSec,fontSize:11,marginBottom:6}}>Cupom (opcional) — entra no lugar de {"{cupom}"}</div>
+                    <TextInput value={wizCupom} onChange={setWizCupom} placeholder="Ex.: VOLTA10"/>
+                  </div>
+                  <div style={{background:A.bg3,border:`1px solid ${A.border}`,borderRadius:R.md,padding:"12px 14px"}}>
+                    <div style={{color:A.textMuted,fontSize:9,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:6}}>Prévia (1º cliente)</div>
+                    <div style={{color:A.textPri,fontSize:12,lineHeight:1.5,whiteSpace:"pre-wrap"}}>{renderTpl(wizMsg, getClientes(seg)[0]) || "—"}</div>
+                  </div>
+                  <div style={{display:"flex",justifyContent:"space-between",gap:S.sm}}>
+                    <Btn variant="ghost" size="sm" onClick={()=>setWizStep(1)}>Voltar</Btn>
+                    <Btn size="sm" onClick={()=>setWizStep(3)} disabled={!wizMsg.trim()}>Próximo</Btn>
+                  </div>
+                </div>
+              )}
+              {wizStep===3 && (
+                <div style={{display:"flex",flexDirection:"column",gap:S.md}}>
+                  <div style={{color:A.textSec,fontSize:12,lineHeight:1.5}}>Confirmar envio para <b style={{color:A.textPri}}>{getClientes(seg).filter(c=>c.telefone).length}</b> cliente(s) do segmento <b style={{color:A.textPri}}>{segmentos.find(s=>s.id===seg)?.label}</b>?</div>
+                  <div style={{background:A.bg3,border:`1px solid ${A.border}`,borderRadius:R.md,padding:"12px 14px"}}>
+                    <div style={{color:A.textMuted,fontSize:9,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:6}}>Mensagem (prévia)</div>
+                    <div style={{color:A.textPri,fontSize:12,lineHeight:1.5,whiteSpace:"pre-wrap"}}>{renderTpl(wizMsg, getClientes(seg)[0]) || wizMsg}</div>
+                  </div>
+                  {!ENV.hasBackend && <div style={{color:A.amber,fontSize:11}}>Modo demonstração — conecte o backend para disparar de verdade.</div>}
+                  <div style={{display:"flex",justifyContent:"space-between",gap:S.sm}}>
+                    <Btn variant="ghost" size="sm" onClick={()=>setWizStep(2)} disabled={wizEnviando}>Voltar</Btn>
+                    <Btn size="sm" onClick={dispararCampanha} disabled={wizEnviando}>{wizEnviando?"Enviando…":"📣 Disparar agora"}</Btn>
+                  </div>
+                </div>
+              )}
+            </Card>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
