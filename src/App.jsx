@@ -85,6 +85,8 @@ const api = {
   meusAgendamentos: (tel) => api._get({ action: "meusAgendamentos", tel }),
   slots:    (data, duracao) => api._get({ action: "slots", data, duracao }),
   agendar:  (payload) => api._post({ action: "agendamento", requestId: `req_${Date.now()}_${Math.random().toString(36).slice(2,9)}`, ...payload }),
+  // v5: criação manual de agendamento pelo painel (origem admin → backend pula antecedência e sinal)
+  agendarManual: (key, payload) => api._post({ action: "agendamento", origem: "admin", key, requestId: `adm_${Date.now()}_${Math.random().toString(36).slice(2,8)}`, ...payload }),
   cancelar: (agendamentoId, tel) => api._post({ action: "cancelar", agendamentoId, tel }),
   // salvarConfig: payload EXATO aceito pelo GAS (Script Properties)
   salvarConfig: (key, config) => api._post({ action: "salvarConfig", key, config }),
@@ -93,6 +95,10 @@ const api = {
   // F.3 blacklist + F.2 leitura da fila (admin — exigem ADMIN_KEY)
   clienteBloquear: (key, tel, bloquear) => api._post({ action: "clienteBloquear", key, tel, bloquear }),
   listarFila: (key) => api._post({ action: "listarFila", key }),
+  // v5: importação de clientes (CSV) — clientes = [{nome,telefone,nascimento,email}]
+  importarClientes: (key, clientes) => api._post({ action: "importarClientes", key, clientes }),
+  // v5: estorno do sinal (Mercado Pago) de um agendamento
+  estornarSinal: (key, agendamentoId) => api._post({ action: "estornarSinal", key, agendamentoId }),
   // extensões de contrato (degradam p/ modo demo sem backend):
   reagendar:     (agendamentoId, novoHorario, tel) => api._post({ action: "reagendar", agendamentoId, novoHorario, tel }),
   enviarLembrete:(tel, clienteId) => api._post({ action: "enviarLembrete", tel, clienteId }),
@@ -509,6 +515,7 @@ const adaptDashboard = (r) => {
     valor: Number(a.preco) || 0,
     duracao: a.duracao || 45,
     clienteId: a.clienteId ?? null,
+    sinalStatus: a.sinalStatus || "",   // v5: ''|pendente|pago|estornado
     obs: a.obs || "",
   }));
   const k = r.kpis || {};
@@ -2163,6 +2170,44 @@ const AgendaPage = () => {
       else toast((r&&r.error)||"Não foi possível enviar o sinal", A.amber, "warning");
     } catch(e){ toast("Falha de rede ao enviar sinal", A.red, "warning"); }
   };
+  // v5: estorno do sinal (Mercado Pago)
+  const handleEstornar = async (s) => {
+    if (!ENV.hasBackend) { toast("Estorno disponível só com o backend conectado", A.amber, "warning"); return; }
+    if (typeof window!=="undefined" && !window.confirm(`Estornar o sinal de ${s.nome}? O valor volta ao cliente pelo Mercado Pago.`)) return;
+    try {
+      const r = await api.estornarSinal(adminKeyStore.get(), s.id);
+      if (r && r.success) { setAgendaState(prev=>prev.map(x=>x.id===s.id?{...x,sinalStatus:"estornado"}:x)); toast(`Sinal de ${s.nome} estornado ✓`, A.green, "check"); }
+      else toast((r&&r.error)||"Não foi possível estornar", A.amber, "warning");
+    } catch(e){ toast("Falha de rede ao estornar", A.red, "warning"); }
+  };
+
+  // v5: criação manual de agendamento ("Novo")
+  const conf = useStore(configStore) || DEFAULT_CONFIG;
+  const [novoOpen, setNovoOpen] = useState(false);
+  const [novoEnviando, setNovoEnviando] = useState(false);
+  const [novoForm, setNovoForm] = useState({ nome:"", telefone:"", servId:"", barbeiro:"", data:"", hora:"" });
+  const setNF = (patch) => setNovoForm(f => ({ ...f, ...patch }));
+  const handleNovoSubmit = async () => {
+    const sv = (conf.servicos||[]).find(s=>String(s.id)===String(novoForm.servId));
+    if (!novoForm.nome.trim() || !novoForm.telefone.trim() || !sv || !novoForm.data || !novoForm.hora) {
+      toast("Preencha nome, telefone, serviço, data e horário", A.amber, "warning"); return;
+    }
+    if (!ENV.hasBackend) { toast("Conecte o backend (VITE_GAS_URL) para criar agendamentos", A.amber, "warning"); return; }
+    setNovoEnviando(true);
+    try {
+      const r = await api.agendarManual(adminKeyStore.get(), {
+        nome: novoForm.nome.trim(), telefone: novoForm.telefone.trim(),
+        data: novoForm.data, horario: novoForm.hora,
+        servico: { nome: sv.nome, duracao: sv.duracao, preco: sv.preco },
+        barbeiro: novoForm.barbeiro || "",
+      });
+      if (r && (r.success || r.id)) {
+        toast(`Agendamento criado: ${novoForm.nome.trim()} · ${novoForm.data} ${novoForm.hora} ✓ (recarregue p/ ver na agenda)`, A.green, "check");
+        setNovoOpen(false); setNovoForm({ nome:"", telefone:"", servId:"", barbeiro:"", data:"", hora:"" });
+      } else toast((r&&r.error)||"Não foi possível criar o agendamento", A.amber, "warning");
+    } catch(e){ toast("Falha de rede ao criar agendamento", A.red, "warning"); }
+    setNovoEnviando(false);
+  };
 
   return (
     <div className="aq-row-stack" style={{display:"flex",gap:S.md}}>
@@ -2181,7 +2226,7 @@ const AgendaPage = () => {
                   {v.charAt(0).toUpperCase()+v.slice(1)}
                 </Btn>
               ))}
-              <Btn variant="secondary" size="sm"><Ico n="plus" size={11} color={A.textSec}/>Novo</Btn>
+              <Btn variant="secondary" size="sm" onClick={()=>setNovoOpen(true)}><Ico n="plus" size={11} color={A.textSec}/>Novo</Btn>
             </div>
           </div>
           {view==="dia"&&(
@@ -2223,6 +2268,9 @@ const AgendaPage = () => {
                             <Ico n="phone" size={10} color={sinalAtivo?A.textMuted:A.amber}/>
                             {sinalAtivo?"Enviado":"Sinal"}
                           </Btn>
+                        )}
+                        {s.sinalStatus==="pago"&&(
+                          <Btn variant="amber" size="sm" onClick={()=>handleEstornar(s)}>Estornar</Btn>
                         )}
                         <Btn variant="danger" size="sm" onClick={()=>handleCancelar(s)}>Cancelar</Btn>
                       </div>
@@ -2292,6 +2340,37 @@ const AgendaPage = () => {
           ))}
         </Card>
       </div>
+      {novoOpen && (
+        <div onClick={()=>!novoEnviando && setNovoOpen(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,padding:S.lg}}>
+          <div onClick={e=>e.stopPropagation()} style={{width:"100%",maxWidth:460,maxHeight:"90vh",overflowY:"auto"}}>
+            <Card>
+              <SectionHead title="Novo agendamento" sub="Criado manualmente pelo painel (sem cobrar sinal)"/>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:S.md}}>
+                <Field label="Nome do cliente"><TextInput value={novoForm.nome} onChange={v=>setNF({nome:v})} placeholder="Ex.: João Silva"/></Field>
+                <Field label="Telefone / WhatsApp"><TextInput value={novoForm.telefone} onChange={v=>setNF({telefone:v})} placeholder="31988887777"/></Field>
+                <Field label="Serviço">
+                  <select value={novoForm.servId} onChange={e=>setNF({servId:e.target.value})} style={{background:A.bg1,border:`1px solid ${A.border}`,borderRadius:R.md,padding:"8px 11px",color:A.textPri,fontSize:12,fontFamily:SHARED.fontAdmin,outline:"none",width:"100%"}}>
+                    <option value="">Escolha…</option>
+                    {(conf.servicos||[]).filter(s=>s.ativo!==false).map(s=>(<option key={s.id} value={s.id}>{s.nome} · {s.duracao}min · R$ {s.preco}</option>))}
+                  </select>
+                </Field>
+                <Field label="Barbeiro (opcional)">
+                  <select value={novoForm.barbeiro} onChange={e=>setNF({barbeiro:e.target.value})} style={{background:A.bg1,border:`1px solid ${A.border}`,borderRadius:R.md,padding:"8px 11px",color:A.textPri,fontSize:12,fontFamily:SHARED.fontAdmin,outline:"none",width:"100%"}}>
+                    <option value="">Qualquer</option>
+                    {(conf.barbeiros||[]).filter(b=>b.ativo!==false).map(b=>(<option key={b.id} value={b.nome}>{b.nome}</option>))}
+                  </select>
+                </Field>
+                <Field label="Data"><TextInput type="date" value={novoForm.data} onChange={v=>setNF({data:v})}/></Field>
+                <Field label="Horário"><TextInput type="time" value={novoForm.hora} onChange={v=>setNF({hora:v})}/></Field>
+              </div>
+              <div style={{marginTop:S.md,display:"flex",justifyContent:"flex-end",gap:S.sm}}>
+                <Btn variant="ghost" size="sm" onClick={()=>setNovoOpen(false)} disabled={novoEnviando}>Cancelar</Btn>
+                <Btn size="sm" onClick={handleNovoSubmit} disabled={novoEnviando}>{novoEnviando?"Criando…":"Criar agendamento"}</Btn>
+              </div>
+            </Card>
+          </div>
+        </div>
+      )}
     </div>
 
   );
@@ -2303,6 +2382,37 @@ const ClientesPage = () => {
   const [filter, setFilter] = useState("todos");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState(null);
+  // v5: importação de clientes via CSV
+  const [importOpen, setImportOpen] = useState(false);
+  const [importText, setImportText] = useState("");
+  const [importEnviando, setImportEnviando] = useState(false);
+  const parseCSV = (txt) => {
+    const linhas = String(txt||"").split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
+    if (!linhas.length) return [];
+    let inicio = 0;
+    if (/nome|telefone|tel|email|nasc/i.test(linhas[0])) inicio = 1; // pula cabeçalho se houver
+    const out = [];
+    for (let i=inicio;i<linhas.length;i++){
+      const cols = linhas[i].split(/[,;\t]/).map(s=>s.trim().replace(/^"|"$/g,""));
+      const nome = cols[0]||"", telefone = cols[1]||"", nascimento = cols[2]||"", email = cols[3]||"";
+      if (nome || telefone) out.push({ nome, telefone, nascimento, email });
+    }
+    return out;
+  };
+  const handleImportar = async () => {
+    const clientes = parseCSV(importText);
+    if (!clientes.length) { toast("Cole ao menos 1 linha: nome,telefone,nascimento,email", A.amber, "warning"); return; }
+    if (!ENV.hasBackend) { toast("Conecte o backend (VITE_GAS_URL) para importar", A.amber, "warning"); return; }
+    setImportEnviando(true);
+    try {
+      const r = await api.importarClientes(adminKeyStore.get(), clientes);
+      if (r && r.success) {
+        toast(`Importação: ${r.novos} novos · ${r.atualizados} atualizados${r.ignorados?` · ${r.ignorados} ignorados`:""} ✓ (recarregue p/ ver)`, A.green, "check");
+        setImportOpen(false); setImportText("");
+      } else toast((r&&r.error)?`Falha: ${r.error}`:"Não foi possível importar", A.amber, "warning");
+    } catch(e){ toast("Falha de rede ao importar", A.red, "warning"); }
+    setImportEnviando(false);
+  };
   const filters=[
     {id:"todos",label:"Todos",count:DB.clientes.length},
     {id:"vip",label:"VIP",count:DB.clientes.filter(c=>c.nivel==="VIP").length},
@@ -2343,6 +2453,7 @@ const ClientesPage = () => {
             <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar cliente…"
               style={{background:"none",border:"none",outline:"none",color:A.textPri,fontSize:11,flex:1,fontFamily:SHARED.fontAdmin}}/>
           </div>
+          <Btn variant="secondary" size="sm" onClick={()=>setImportOpen(true)}><Ico n="plus" size={11} color={A.textSec}/>Importar CSV</Btn>
         </div>
         <Card pad={false}>
           <div style={{padding:`${S.sm}px ${S.xl}px`,borderBottom:`1px solid ${A.border}`,display:"flex",gap:12}}>
@@ -2461,6 +2572,26 @@ const ClientesPage = () => {
               </div>
             ))}
           </Card>
+        </div>
+      )}
+      {importOpen && (
+        <div onClick={()=>!importEnviando && setImportOpen(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,padding:S.lg}}>
+          <div onClick={e=>e.stopPropagation()} style={{width:"100%",maxWidth:520,maxHeight:"90vh",overflowY:"auto"}}>
+            <Card>
+              <SectionHead title="Importar clientes (CSV)" sub="Uma linha por cliente · colunas: nome, telefone, nascimento, email"/>
+              <div style={{color:A.textMuted,fontSize:10,marginBottom:8,lineHeight:1.5}}>
+                Cole abaixo (do Excel / Google Sheets / contatos). Separador vírgula, ponto-e-vírgula ou TAB.
+                Cabeçalho é opcional · nascimento em DD/MM/AAAA · não conta como visita e não dispara mensagens.
+              </div>
+              <textarea value={importText} onChange={e=>setImportText(e.target.value)} rows={8} placeholder={"João Silva,31988887777,15/03/1990,joao@email.com\nMaria Souza;31977776666;;maria@email.com"}
+                style={{width:"100%",resize:"vertical",padding:"10px 12px",fontSize:12,lineHeight:1.5,borderRadius:R.md,border:`1px solid ${A.border}`,background:A.bg1,color:A.textPri,fontFamily:SHARED.fontMono,outline:"none",boxSizing:"border-box"}}/>
+              <div style={{color:A.textSec,fontSize:10,marginTop:6}}>{parseCSV(importText).length} cliente(s) detectado(s) na prévia.</div>
+              <div style={{marginTop:S.md,display:"flex",justifyContent:"flex-end",gap:S.sm}}>
+                <Btn variant="ghost" size="sm" onClick={()=>setImportOpen(false)} disabled={importEnviando}>Cancelar</Btn>
+                <Btn size="sm" onClick={handleImportar} disabled={importEnviando}>{importEnviando?"Importando…":"Importar"}</Btn>
+              </div>
+            </Card>
+          </div>
         </div>
       )}
     </div>
