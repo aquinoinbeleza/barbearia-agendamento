@@ -49,6 +49,7 @@ const api = {
   },
   listarServicos:  () => api._get({ action: "listarServicos" }),
   listarBarbeiros: () => api._get({ action: "listarBarbeiros" }),
+  getConfig:       () => api._get({ action: "getConfig" }),
   verificarCliente:(tel) => api._get({ action: "verificarCliente", tel }),
   meusAgendamentos:(tel) => api._get({ action: "meusAgendamentos", tel }),
   slots:    (data, duracao) => api._get({ action: "slots", data, duracao }),
@@ -1027,6 +1028,7 @@ function Portal() {
   const [servicos, setServicos] = useState([]);
   const [barbeiros, setBarbeiros] = useState([]);
   const [servSel, setServSel] = useState([]); // multi-serviço: lista de serviços escolhidos
+  const [bizCfg, setBizCfg] = useState(null);  // dados da barbearia (links/endereço) vindos do backend
   const [barbSel, setBarbSel] = useState(null);
   const [dataSel, setDataSel] = useState(null);
   const [horaSel, setHoraSel] = useState(null);
@@ -1055,9 +1057,10 @@ function Portal() {
   useEffect(() => {
     (async () => {
       try {
-        const [rs, rb] = await Promise.all([api.listarServicos(), api.listarBarbeiros()]);
+        const [rs, rb, rc] = await Promise.all([api.listarServicos(), api.listarBarbeiros(), api.getConfig()]);
         setServicos(rs && rs.servicos ? rs.servicos.filter(s=>s.ativo!==false) : DEMO_SERVICOS);
         setBarbeiros(rb && rb.barbeiros ? rb.barbeiros.filter(b=>b.ativo!==false) : DEMO_BARBEIROS);
+        if (rc && rc.config && rc.config.barbearia) setBizCfg(rc.config.barbearia);
       } catch (e) { setServicos(DEMO_SERVICOS); setBarbeiros(DEMO_BARBEIROS); }
     })();
   }, []);
@@ -1129,6 +1132,13 @@ function Portal() {
   const servTotalPreco = servArr.reduce((t,s)=>t+(Number(s.preco)||0),0);
   const servTotalDur   = servArr.reduce((t,s)=>t+(Number(s.duracao)||0),0);
   const servNomes      = servArr.map(s=>s.nome).filter(Boolean).join(" + ");
+
+  // ── infos da barbearia: backend (editável no admin) com fallback aos valores fixos ──
+  const biz = bizCfg || {};
+  const igUrl = biz.instagram || LINKS.instagram;
+  const fbUrl = biz.facebook || LINKS.facebook;
+  const googleUrl = biz.google || LINKS.google;
+  const endereco = biz.endereco || BARBEARIA.endereco;
 
   // ── Passo 3: carregar horários ──
   useEffect(() => {
@@ -1280,7 +1290,7 @@ function Portal() {
       titulo: `${servNomes} — ${BARBEARIA.nome}`,
       inicio,
       durMin: servTotalDur || 60,
-      local: BARBEARIA.endereco,
+      local: endereco,
       descricao: [`${BARBEARIA.nome} ${BARBEARIA.sub}`, barbSel ? barbSel.nome : "", BARBEARIA.instagram].filter(Boolean).join(" · "),
     });
     const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
@@ -1298,7 +1308,7 @@ function Portal() {
       `${t("lbl_servico")}: ${servNomes}`,
       barbSel ? `${t("lbl_barbeiro")}: ${barbSel.nome}` : "",
       `${t("lbl_data")}: ${dataTxt} ${horaSel || ""}`.trim(),
-      `${t("lbl_local")}: ${BARBEARIA.endereco}`,
+      `${t("lbl_local")}: ${endereco}`,
     ].filter(Boolean);
     window.open("https://wa.me/?text=" + encodeURIComponent(linhas.join("\n")), "_blank");
   };
@@ -1446,10 +1456,10 @@ function Portal() {
           <div style={{background:T.card,border:`1px solid ${T.line}`,borderRadius:16,padding:"16px",textAlign:"center"}}>
             <div style={{color:T.muted,fontSize:10.5,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:12}}>AQUINO Barbearia &amp; Estética</div>
             <div style={{display:"flex",gap:9,justifyContent:"center",marginBottom:9}}>
-              <a href={LINKS.instagram} target="_blank" rel="noopener noreferrer" className="aq-btn" style={{flex:1,maxWidth:150,textDecoration:"none",background:T.name==="dark"?T.card2:T.bg1,border:`1px solid ${T.line}`,borderRadius:11,padding:"10px",color:T.ink,fontWeight:600,fontSize:12.5,fontFamily:T.sans}}>Instagram</a>
-              <a href={LINKS.facebook} target="_blank" rel="noopener noreferrer" className="aq-btn" style={{flex:1,maxWidth:150,textDecoration:"none",background:T.name==="dark"?T.card2:T.bg1,border:`1px solid ${T.line}`,borderRadius:11,padding:"10px",color:T.ink,fontWeight:600,fontSize:12.5,fontFamily:T.sans}}>Facebook</a>
+              <a href={igUrl} target="_blank" rel="noopener noreferrer" className="aq-btn" style={{flex:1,maxWidth:150,textDecoration:"none",background:T.name==="dark"?T.card2:T.bg1,border:`1px solid ${T.line}`,borderRadius:11,padding:"10px",color:T.ink,fontWeight:600,fontSize:12.5,fontFamily:T.sans}}>Instagram</a>
+              <a href={fbUrl} target="_blank" rel="noopener noreferrer" className="aq-btn" style={{flex:1,maxWidth:150,textDecoration:"none",background:T.name==="dark"?T.card2:T.bg1,border:`1px solid ${T.line}`,borderRadius:11,padding:"10px",color:T.ink,fontWeight:600,fontSize:12.5,fontFamily:T.sans}}>Facebook</a>
             </div>
-            <a href={LINKS.google} target="_blank" rel="noopener noreferrer" className="aq-btn" style={{display:"block",textDecoration:"none",background:T.brassTint,border:`1px solid ${T.brassLine}`,borderRadius:11,padding:"11px",color:T.brass,fontWeight:700,fontSize:13,fontFamily:T.sans}}>★ {t("rs_avaliar")}</a>
+            <a href={googleUrl} target="_blank" rel="noopener noreferrer" className="aq-btn" style={{display:"block",textDecoration:"none",background:T.brassTint,border:`1px solid ${T.brassLine}`,borderRadius:11,padding:"11px",color:T.brass,fontWeight:700,fontSize:13,fontFamily:T.sans}}>★ {t("rs_avaliar")}</a>
           </div>
         </div>
 
@@ -1873,7 +1883,7 @@ function Portal() {
           <Linha label={t("lbl_barbeiro")} valor={barbSel?.nome}/>
           <Linha label={t("lbl_data")} valor={dataSel && `${DIAS[dataSel.getDay()]}, ${dataSel.getDate()}/${String(dataSel.getMonth()+1).padStart(2,"0")}`}/>
           <Linha label={t("lbl_horario")} valor={horaSel}/>
-          <Linha label={t("lbl_local")} valor={BARBEARIA.endereco}/>
+          <Linha label={t("lbl_local")} valor={endereco}/>
         </div>
         {(resultado?.demo||demo) && <p style={{textAlign:"center",fontSize:11,color:T.muted,marginTop:14}}>Modo demonstração — conecte o backend (VITE_GAS_URL) para gravar de verdade.</p>}
         {!(resultado?.demo||demo) && <p style={{textAlign:"center",fontSize:13,color:T.muted,marginTop:16,lineHeight:1.5}}>{t("ok_lembrete")}</p>}
