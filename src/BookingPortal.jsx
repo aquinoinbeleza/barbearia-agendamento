@@ -84,6 +84,28 @@ const BARBEARIA = {
   instagram: "@aquino.inbeleza",
 };
 
+// Fatia B — Dicas de cuidado (conteúdo geral, NÃO-médico)
+const DICAS_CUIDADO = [
+  { cat:"Cabelo", icon:"✂️", itens:[
+    "Lave com água morna (não quente) — água muito quente resseca o couro cabeludo.",
+    "Use shampoo do seu tipo de cabelo e condicionador só do meio às pontas.",
+    "Seque batendo a toalha de leve, sem esfregar, pra não quebrar o fio.",
+    "Volte ao corte a cada 3–4 semanas pra manter o visual alinhado.",
+  ]},
+  { cat:"Barba", icon:"🧔", itens:[
+    "Lave a barba diariamente e hidrate com óleo ou balm pra amaciar os fios.",
+    "Penteie no sentido do crescimento pra evitar fios encravados.",
+    "Apare a cada 1–2 semanas pra manter o contorno definido.",
+    "Antes de raspar, amoleça os pelos com toalha quente — desliza melhor e irrita menos.",
+  ]},
+  { cat:"Pele", icon:"✨", itens:[
+    "Lave o rosto 2x ao dia com sabonete suave pra tirar oleosidade e impurezas.",
+    "Use um hidratante leve depois de barbear pra acalmar a pele.",
+    "Protetor solar todo dia — inclusive em dias nublados.",
+    "Evite passar a mão no rosto ao longo do dia pra reduzir cravos e espinhas.",
+  ]},
+];
+
 // ─── TEMAS (escuro + claro) ─────────────────────────────────────────────
 const FONTS = { serif:"'Fraunces', Georgia, serif", sans:"'Hanken Grotesk', system-ui, sans-serif" };
 const THEMES = {
@@ -261,6 +283,9 @@ const STRINGS = {
   pix_label:    { pt:"Pix copia e cola:", en:"Pix copy & paste:", es:"Pix copiar y pegar:", fr:"Pix copier-coller :" },
   pix_copiar:   { pt:"Copiar código Pix", en:"Copy Pix code", es:"Copiar código Pix", fr:"Copier le code Pix" },
   pix_copiado:  { pt:"Copiado!", en:"Copied!", es:"¡Copiado!", fr:"Copié !" },
+  dicas_titulo: { pt:"Dicas de cuidado", en:"Care tips", es:"Consejos de cuidado", fr:"Conseils de soin" },
+  dicas_sub:    { pt:"Cabelo, barba e pele no dia a dia", en:"Hair, beard and skin, every day", es:"Cabello, barba y piel a diario", fr:"Cheveux, barbe et peau au quotidien" },
+  dicas_aviso:  { pt:"Dicas gerais — não substituem a orientação de um profissional de saúde.", en:"General tips — not a substitute for professional health advice.", es:"Consejos generales — no sustituyen la orientación de un profesional.", fr:"Conseils généraux — ne remplacent pas un avis professionnel." },
 };
 const traduzir = (idioma, chave, repl) => {
   const e = STRINGS[chave];
@@ -1004,7 +1029,7 @@ const LegalModal = ({ tipo, onClose }) => {
 };
 
 // ════════════════════════════════════════════════════════════════════════
-const HOME = 7, HIST = 8, PERFIL = 9, EDITAR_PERFIL = 10;
+const HOME = 7, HIST = 8, PERFIL = 9, EDITAR_PERFIL = 10, DICAS = 11;
 
 function Portal() {
   const T = useT();
@@ -1469,6 +1494,20 @@ function Portal() {
           <InspiracaoCard fraseIdx={fraseIdx} />
         </div>
 
+        {/* dicas de cuidado (Fatia B) */}
+        <div style={{padding:"12px 22px 0"}}>
+          <button onClick={()=>setStep(DICAS)} className="aq-btn" style={{width:"100%",background:T.card,border:`1px solid ${T.line}`,borderRadius:16,padding:"14px 16px",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",fontFamily:T.sans}}>
+            <span style={{display:"flex",alignItems:"center",gap:10}}>
+              <span style={{fontSize:20}}>💡</span>
+              <span style={{textAlign:"left"}}>
+                <span style={{display:"block",color:T.ink,fontWeight:700,fontSize:14}}>{t("dicas_titulo")}</span>
+                <span style={{display:"block",color:T.muted,fontSize:11.5}}>{t("dicas_sub")}</span>
+              </span>
+            </span>
+            <span style={{color:T.brass,fontSize:18}}>›</span>
+          </button>
+        </div>
+
         {/* redes sociais + avaliação no Google */}
         <div style={{padding:"12px 22px 0"}}>
           <div style={{background:T.card,border:`1px solid ${T.line}`,borderRadius:16,padding:"16px",textAlign:"center"}}>
@@ -1486,6 +1525,31 @@ function Portal() {
       </Shell>
     );
   }
+
+  // DICAS DE CUIDADO (Fatia B)
+  if (step===DICAS) return (
+    <Shell onToggleTema={onToggleTema}>
+      <Header titulo={t("dicas_titulo")} sub={t("dicas_sub")} onBack={()=>setStep(HOME)}/>
+      <div style={{padding:"4px 22px 0",display:"flex",flexDirection:"column",gap:12}}>
+        {DICAS_CUIDADO.map((g,gi)=>(
+          <div key={gi} style={{background:T.card,border:`1px solid ${T.line}`,borderRadius:16,padding:"14px 16px"}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+              <span style={{fontSize:18}}>{g.icon}</span>
+              <span style={{color:T.brass,fontWeight:700,fontSize:14,fontFamily:T.serif}}>{g.cat}</span>
+            </div>
+            {g.itens.map((it,ii)=>(
+              <div key={ii} style={{display:"flex",gap:8,padding:"5px 0",color:T.ink2,fontSize:13,lineHeight:1.45}}>
+                <span style={{color:T.brass,flexShrink:0}}>•</span><span>{it}</span>
+              </div>
+            ))}
+          </div>
+        ))}
+        <div style={{color:T.muted,fontSize:11,textAlign:"center",padding:"4px 8px 0",lineHeight:1.5}}>{t("dicas_aviso")}</div>
+      </div>
+      <div style={{height:88}}/>
+      <BottomNav ativo={HOME} onNav={irPara} />
+    </Shell>
+  );
 
   // PASSO 8 — HISTÓRICO
   if (step===HIST) {
@@ -1952,3 +2016,4 @@ export default function BookingPortal() {
     </ThemeCtx.Provider>
   );
 }
+
