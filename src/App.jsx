@@ -204,7 +204,7 @@ const DEFAULT_CONFIG = {
     sinalPct: 30,            // % de sinal antecipado
     cancelamentoH: 12,       // janela de cancelamento s/ multa (h)
     intervaloRetornoDias: 15,// recorrência: intervalo ideal de retorno (dias) → GAS INTERVALO_RETORNO
-    antecedenciaMaxDias: 60, // antecedência máxima p/ agendar (dias)
+    antecedenciaMaxDias: 365,// antecedência máxima p/ agendar (dias) — ano todo
     comissaoPct: 50,         // % de comissão do profissional (relatório de comissões)
   },
   // Barbeiros/profissionais — add/editar/excluir no painel. Cliente escolhe no agendamento.
@@ -4257,7 +4257,7 @@ const ConfigPage = () => {
               <TextInput type="number" value={cfg.operacao.intervaloRetornoDias ?? 15} onChange={v=>configStore.set(c=>({...c,operacao:{...c.operacao,intervaloRetornoDias:Number(v)||0}}))}/>
             </Field>
             <Field label="Antecedência máxima p/ agendar (dias)">
-              <TextInput type="number" value={cfg.operacao.antecedenciaMaxDias ?? 60} onChange={v=>configStore.set(c=>({...c,operacao:{...c.operacao,antecedenciaMaxDias:Number(v)||0}}))}/>
+              <TextInput type="number" value={cfg.operacao.antecedenciaMaxDias ?? 365} onChange={v=>configStore.set(c=>({...c,operacao:{...c.operacao,antecedenciaMaxDias:Number(v)||0}}))}/>
             </Field>
             <Field label="Comissão do profissional (%)">
               <TextInput type="number" value={cfg.operacao.comissaoPct ?? 50} onChange={v=>configStore.set(c=>({...c,operacao:{...c.operacao,comissaoPct:Number(v)||0}}))}/>
