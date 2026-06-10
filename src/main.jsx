@@ -14,3 +14,11 @@ createRoot(document.getElementById("root")).render(
     {isPortal ? <BookingPortal /> : <App />}
   </React.StrictMode>
 );
+
+// PWA: registra o service worker (instalável + offline + pronto p/ push).
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {});
+  });
+}
+
