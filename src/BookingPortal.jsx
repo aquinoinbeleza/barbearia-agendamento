@@ -1370,9 +1370,7 @@ function Portal() {
     <>
     <Shell onToggleTema={onToggleTema}>
       <div style={{padding:"54px 22px 0",textAlign:"center"}}>
-        <div style={{width:64,height:64,margin:"0 auto 14px",borderRadius:18,background:`linear-gradient(150deg,${T.brass},${T.brassDeep})`,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:T.shadowBtn}}>
-          <span style={{fontFamily:T.serif,color:"#fff",fontSize:30,fontWeight:700}}>A</span>
-        </div>
+        <img src="/icon-512.png" alt="AQUINO" width="68" height="68" style={{display:"block",margin:"0 auto 14px",borderRadius:18,boxShadow:T.shadowBtn}}/>
         <div style={{fontFamily:T.serif,fontSize:34,fontWeight:700,letterSpacing:"0.04em",color:T.ink}}>{BARBEARIA.nome}</div>
         <div style={{color:T.brass,fontSize:13,fontWeight:600,letterSpacing:"0.16em",textTransform:"uppercase",marginTop:2}}>{BARBEARIA.sub}</div>
       </div>
@@ -2016,3 +2014,4 @@ export default function BookingPortal() {
     </ThemeCtx.Provider>
   );
 }
+
