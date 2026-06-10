@@ -106,6 +106,28 @@ const DICAS_CUIDADO = [
   ]},
 ];
 
+// Sugestões de domínio de e-mail (a partir do que a pessoa digita antes do @).
+const EMAIL_DOMINIOS = ["gmail.com","hotmail.com","outlook.com","yahoo.com.br","icloud.com","live.com","bol.com.br","terra.com.br"];
+const EmailSugestoes = ({ email, onPick, T }) => {
+  const v = String(email || "").trim();
+  if (!v) return null;
+  const at = v.indexOf("@");
+  const local = at >= 0 ? v.slice(0, at) : v;
+  if (!local) return null;
+  const dom = at >= 0 ? v.slice(at + 1).toLowerCase() : "";
+  if (at >= 0 && EMAIL_DOMINIOS.indexOf(dom) > -1) return null; // já completou um conhecido
+  const lista = EMAIL_DOMINIOS.filter(d => !dom || d.indexOf(dom) === 0).slice(0, 5).map(d => `${local}@${d}`);
+  if (!lista.length) return null;
+  return (
+    <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:8}}>
+      {lista.map(s => (
+        <button key={s} type="button" onClick={()=>onPick(s)} className="aq-btn"
+          style={{padding:"7px 11px",borderRadius:9,border:`1px solid ${T.brassLine}`,background:T.brassTint,color:T.brass,fontSize:12.5,fontWeight:600,cursor:"pointer",fontFamily:T.sans}}>{s}</button>
+      ))}
+    </div>
+  );
+};
+
 // ─── TEMAS (escuro + claro) ─────────────────────────────────────────────
 const FONTS = { serif:"'Fraunces', Georgia, serif", sans:"'Hanken Grotesk', system-ui, sans-serif" };
 const THEMES = {
@@ -1685,6 +1707,7 @@ function Portal() {
             <input value={email} onChange={(e)=>setEmail(e.target.value)} type="email" inputMode="email" autoComplete="email" placeholder="seu@email.com"
               style={{width:"100%",marginTop:8,padding:"14px 16px",fontSize:16,borderRadius:13,border:`1.5px solid ${T.line}`,background:T.card,fontFamily:T.sans,outline:"none",color:T.ink}}
               onFocus={(e)=>e.target.style.borderColor=T.brass} onBlur={(e)=>e.target.style.borderColor=T.line}/>
+            <EmailSugestoes email={email} onPick={setEmail} T={T} />
           </div>
           <DependentesEditor deps={dependentes} setDeps={setDependentes} />
           <div style={{marginTop:14}}>
@@ -1911,6 +1934,7 @@ function Portal() {
           <input value={email} onChange={(e)=>setEmail(e.target.value)} placeholder="seu@email.com" type="email" inputMode="email" autoComplete="email"
             style={{width:"100%",marginTop:8,padding:"14px 16px",fontSize:16,borderRadius:13,border:`1.5px solid ${T.line}`,background:T.card,fontFamily:T.sans,outline:"none",color:T.ink}}
             onFocus={(e)=>e.target.style.borderColor=T.brass} onBlur={(e)=>e.target.style.borderColor=T.line}/>
+          <EmailSugestoes email={email} onPick={setEmail} T={T} />
         </div>
         <DependentesEditor deps={dependentes} setDeps={setDependentes} />
         <div style={{marginTop:14}}>
