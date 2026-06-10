@@ -1169,7 +1169,7 @@ function Portal() {
 
   // ── calendário mensal (Passo 3): grade do mês + limites (passado / antecedência máx) ──
   const hojeMid = new Date(); hojeMid.setHours(0,0,0,0);
-  const maxDiasCal = Number(bizOp && bizOp.antecedenciaMaxDias) || 60;
+  const maxDiasCal = Number(bizOp && bizOp.antecedenciaMaxDias) || 365;
   const maxData = new Date(hojeMid); maxData.setDate(maxData.getDate() + maxDiasCal);
   const ehMesAtual = calBase.getFullYear()===hojeMid.getFullYear() && calBase.getMonth()===hojeMid.getMonth();
   const podeAvancarMes = new Date(calBase.getFullYear(), calBase.getMonth()+1, 1) <= maxData;
