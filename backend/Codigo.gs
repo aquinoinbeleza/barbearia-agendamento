@@ -20,7 +20,7 @@
  */
 
 // ─── PLANILHAS + SCHEMAS CANÔNICOS (PARTE 6.9 / 6.10) ──────────────────────
-var SHEETS = { CLIENTES:'Clientes', AGENDAMENTOS:'Agendamentos', FINANCEIRO:'Financeiro', SERVICOS:'Servicos', FEEDBACKS:'Feedbacks', FILA_ESPERA:'FilaEspera', PENDENTES:'MensagensPendentes', METRICAS:'Metricas', LOG:'Log', CAIXA:'Caixa', COMANDAS:'Comandas', CUPONS:'Cupons', PONTOS:'Pontos' };
+var SHEETS = { CLIENTES:'Clientes', AGENDAMENTOS:'Agendamentos', FINANCEIRO:'Financeiro', SERVICOS:'Servicos', FEEDBACKS:'Feedbacks', FILA_ESPERA:'FilaEspera', PENDENTES:'MensagensPendentes', METRICAS:'Metricas', LOG:'Log', CAIXA:'Caixa', COMANDAS:'Comandas', CUPONS:'Cupons', PONTOS:'Pontos', BLOQUEIOS:'Bloqueios' };
 
 var HEADERS = {
   // Email é APPEND-ONLY no fim (col J) — não desloca os índices canônicos existentes.
@@ -44,6 +44,7 @@ var HEADERS = {
   COMANDAS:     ['ID','CaixaID','ClienteID','Nome','Itens','Desconto','Total','FormaPagamento','Status','AbertaEm','FechadaEm'],
   CUPONS:       ['Codigo','Tipo','Valor','Validade','UsoMax','UsoCount','Ativo','CriadoEm'],
   PONTOS:       ['Timestamp','ClienteID','Delta','Saldo','Motivo'],
+  BLOQUEIOS:    ['ID','DataIni','DataFim','HoraIni','HoraFim','Tipo','Motivo','CriadoEm'],
 };
 
 // Índices de coluna (0-based) — espelham os mnemônicos do master
@@ -59,6 +60,7 @@ var FILA_STATUS = { AGUARDANDO:'aguardando', NOTIFICADO:'notificado', CONVERTIDO
 var CX = { ID:0, ABERTO:1, FECHADO:2, V_ABRE:3, V_FECHA:4, TOTAL:5, SANGRIAS:6, STATUS:7, OPERADOR:8 };
 var CM = { ID:0, CAIXA:1, CLI_ID:2, NOME:3, ITENS:4, DESCONTO:5, TOTAL:6, PAGAMENTO:7, STATUS:8, ABERTA:9, FECHADA:10 };
 var CP = { CODIGO:0, TIPO:1, VALOR:2, VALIDADE:3, USO_MAX:4, USO_COUNT:5, ATIVO:6, CRIADO:7 };
+var BL = { ID:0, DATA_INI:1, DATA_FIM:2, HORA_INI:3, HORA_FIM:4, TIPO:5, MOTIVO:6, CRIADO:7 };
 
 var PROP = {
   SITE_TOKEN:'SITE_TOKEN', ADMIN_KEY:'ADMIN_KEY', CONFIG_JSON:'CONFIG_JSON',
@@ -248,6 +250,9 @@ function doPost(e) {
       case 'cupomValidar':     return requireRole_(body, 'cupomValidar',     function(){ return actionCupomValidar_(body); });
       case 'comissao':         return requireRole_(body, 'comissao',         function(){ return actionComissao_(body); });
       case 'pontosResgatar':   return requireRole_(body, 'pontosResgatar',   function(){ return actionPontosResgatar_(body); });
+      case 'bloqueioListar':   return requireRole_(body, 'bloqueioListar',   function(){ return actionBloqueioListar_(); });
+      case 'bloqueioCriar':    return requireRole_(body, 'bloqueioCriar',    function(){ return actionBloqueioCriar_(body); });
+      case 'bloqueioRemover':  return requireRole_(body, 'bloqueioRemover',  function(){ return actionBloqueioRemover_(body); });
       default:                 return json_(respostaErro_('acao_desconhecida'));
     }
   } catch (err) { logErro_('doPost', err); return json_(respostaErro_('erro_interno')); }
@@ -485,7 +490,7 @@ function actionSlots_(p) {
   var agBusy = getAgendamentos_()
     .filter(function(a){ return a[AG.DATA] === data && a[AG.STATUS] !== STATUS.CANCELADO && a[AG.STATUS] !== STATUS.FALTOU; })
     .map(function(a){ var ini = toMin_(a[AG.HORA]); return { ini: ini, fim: ini + (Number(a[AG.DUR]) || 45) }; });
-  var busy = intervalosOcupadosCalendar_(data).concat(agBusy); // folgas/feriados/eventos + agendamentos
+  var busy = intervalosOcupadosCalendar_(data).concat(agBusy).concat(bloqueiosDoDia_(data)); // Calendar + agendamentos + bloqueios (folga/feriado)
   // Antecedência mínima: no dia de hoje, não ofertar horários antes de agora + operacao.antecedencia (min).
   var minMin = -1;
   if (data === hojeISO_()) minMin = toMin_(Utilities.formatDate(new Date(), tz_(), 'HH:mm')) + (Number(cfg.operacao.antecedencia) || 0);
@@ -564,6 +569,13 @@ function actionAgendamento_(b) {
     return tNova < (tEx + dEx) && (tNova + durNova) > tEx;
   });
   if (conflito) return { success:false, error:'Horário não disponível' };
+
+  // v8: bloqueios (folga/feriado) — cliente não agenda; admin manual pode sobrepor.
+  if (!ehAdminManual) {
+    var tBlk = toMin_(horario);
+    var emBloqueio = bloqueiosDoDia_(data).some(function(bk){ return tBlk < bk.fim && (tBlk + durNova) > bk.ini; });
+    if (emBloqueio) return { success:false, error:'Esse horário está bloqueado (folga/feriado). Escolha outro.' };
+  }
 
   var cli = upsertCliente_(nome, tel, data, b.nascimento, b.clienteID, b.intervaloDias, b.email, serializarDependentes_(b.dependentes), b.foto);
   var id = gerarIdAgendamento_();
@@ -964,7 +976,10 @@ function actionPontosResgatar_(b) {
 
 // COMISSÃO (v7) — atendimentos REALIZADOS do mês por barbeiro × operacao.comissaoPct
 function actionComissao_(b) {
-  var pct = Number(getConfig_().operacao.comissaoPct) || 0;
+  var cfg = getConfig_();
+  var pctGlobal = Number(cfg.operacao.comissaoPct) || 0;
+  var pctPorNome = {};
+  (cfg.barbeiros||[]).forEach(function(bb){ if (bb && bb.nome != null) pctPorNome[String(bb.nome).trim()] = (bb.comissao != null && bb.comissao !== '') ? Number(bb.comissao) : null; });
   var mes = String(b.mes || hojeISO_().slice(0,7));
   var ags = getAgendamentos_().filter(function(a){ return a[AG.STATUS]===STATUS.REALIZADO && String(a[AG.DATA]).slice(0,7)===mes; });
   var porBarb = {};
@@ -974,10 +989,42 @@ function actionComissao_(b) {
     porBarb[nome].atendimentos++;
     porBarb[nome].faturado += Number(a[AG.PRECO])||0;
   });
-  var lista = Object.keys(porBarb).map(function(k){ var x = porBarb[k]; x.comissao = Math.round(x.faturado * pct) / 100; return x; });
-  return { success:true, mes:mes, pct:pct, barbeiros:lista,
+  var lista = Object.keys(porBarb).map(function(k){ var x = porBarb[k]; var pct = (pctPorNome[k] != null) ? pctPorNome[k] : pctGlobal; x.pct = pct; x.comissao = Math.round(x.faturado * pct) / 100; return x; });
+  return { success:true, mes:mes, pct:pctGlobal, barbeiros:lista,
     totalFaturado: lista.reduce(function(s,x){ return s + x.faturado; }, 0),
     totalComissao: lista.reduce(function(s,x){ return s + x.comissao; }, 0) };
+}
+
+// BLOQUEIOS (v8) — folgas/feriados/reuniões por período (dia inteiro quando sem hora)
+function bloqueiosDoDia_(data) {
+  var out = [];
+  getRowsData_(SHEETS.BLOQUEIOS).forEach(function(r){
+    var di = String(r[BL.DATA_INI]||''); var df = String(r[BL.DATA_FIM]||'') || di;
+    if (!di || data < di || data > df) return;
+    var hi = String(r[BL.HORA_INI]||''), hf = String(r[BL.HORA_FIM]||'');
+    if (hi && hf) out.push({ ini: toMin_(hi), fim: toMin_(hf) });
+    else out.push({ ini: 0, fim: 1440 }); // dia inteiro
+  });
+  return out;
+}
+function actionBloqueioListar_() {
+  return { success:true, bloqueios: getRowsData_(SHEETS.BLOQUEIOS).map(function(r){ return {
+    id:r[BL.ID], dataIni:String(r[BL.DATA_INI]||''), dataFim:String(r[BL.DATA_FIM]||''),
+    horaIni:String(r[BL.HORA_INI]||''), horaFim:String(r[BL.HORA_FIM]||''), tipo:r[BL.TIPO]||'folga', motivo:r[BL.MOTIVO]||'' };
+  }) };
+}
+function actionBloqueioCriar_(b) {
+  var di = String(b.dataIni||'').slice(0,10); if (!di) return { success:false, error:'Informe a data inicial' };
+  var df = String(b.dataFim||'').slice(0,10) || di;
+  if (df < di) { var tmp = di; di = df; df = tmp; }
+  var id = 'BLK-' + nowCompact_();
+  sheet_(SHEETS.BLOQUEIOS).appendRow([id, di, df, String(b.horaIni||'').slice(0,5), String(b.horaFim||'').slice(0,5), sanitizar_(String(b.tipo||'folga')).slice(0,20), sanitizar_(String(b.motivo||'')).slice(0,120), nowISO_()]);
+  return { success:true, id:id };
+}
+function actionBloqueioRemover_(b) {
+  var r = findRow_(SHEETS.BLOQUEIOS, BL.ID, b.id); if (!r) return { success:false, error:'Bloqueio não encontrado' };
+  sheet_(SHEETS.BLOQUEIOS).deleteRow(r.rowIndex);
+  return { success:true };
 }
 
 // ─── AÇÕES ADMIN ────────────────────────────────────────────────────────────
@@ -1333,6 +1380,7 @@ function processarWebhook_(body) {
       if (getSecret_('MODO_COEXISTENCIA') === '1') { pausarBot_(from, 3); notificarDono_('🙋 ' + (cliNome_(from) || from) + ' pediu atendimento (menu).'); return enviarWhatsApp_(from, 'Um atendente vai te responder por aqui. 💈'); }
       return enviarWhatsApp_(from, 'Falar com atendente: https://wa.me/' + getSecret_(PROP.SAC_NUMERO));
     }
+    if (texto === '6') return iniciarCancelamento_(from);
 
     // 7) Fallback / primeiro contato → menu personalizado
     var cli = findClienteByTel_(from);
@@ -1391,7 +1439,7 @@ function fluxoNPS_(from, texto, estado) {
 // ── Textos do bot ───────────────────────────────────────────────────────────
 function menuPrincipal_(nome) {
   var saud = nome ? ('Olá, ' + nome + '! 👋') : 'Olá! 👋';
-  return saud + '\nBem-vindo à ' + getConfig_().barbearia.nome + '.\n\n1️⃣ Agendar horário\n2️⃣ Ver serviços\n3️⃣ Promoções e combos\n4️⃣ Meus agendamentos\n5️⃣ Falar com atendente';
+  return saud + '\nBem-vindo à ' + getConfig_().barbearia.nome + '.\n\n1️⃣ Agendar horário\n2️⃣ Ver serviços\n3️⃣ Promoções e combos\n4️⃣ Meus agendamentos\n5️⃣ Falar com atendente\n6️⃣ Cancelar agendamento';
 }
 function listarServicosTexto_() {
   return getConfig_().servicos.filter(function(s){ return s.ativo !== false; })
