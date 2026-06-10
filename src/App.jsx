@@ -114,6 +114,10 @@ const api = {
   // v7: comissão (relatório) + resgate de pontos
   comissao: (key, mes) => api._post({ action: "comissao", key, mes }),
   pontosResgatar: (key, clienteId, pontos, motivo) => api._post({ action: "pontosResgatar", key, clienteId, pontos, motivo }),
+  // v8: bloqueios de horário (folga/feriado)
+  bloqueioListar: (key) => api._post({ action: "bloqueioListar", key }),
+  bloqueioCriar: (key, bloqueio) => api._post({ action: "bloqueioCriar", key, ...bloqueio }),
+  bloqueioRemover: (key, id) => api._post({ action: "bloqueioRemover", key, id }),
   // extensões de contrato (degradam p/ modo demo sem backend):
   reagendar:     (agendamentoId, novoHorario, tel) => api._post({ action: "reagendar", agendamentoId, novoHorario, tel }),
   enviarLembrete:(tel, clienteId) => api._post({ action: "enviarLembrete", tel, clienteId }),
@@ -2400,6 +2404,7 @@ const ClientesPage = () => {
   const [filter, setFilter] = useState("todos");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState(null);
+  const [cliTab, setCliTab] = useState("ficha"); // v8: abas da ficha do cliente
   // v5: importação de clientes via CSV
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState("");
@@ -2513,7 +2518,12 @@ const ClientesPage = () => {
       </div>
       {sel&&(
         <div style={{width:270,flexShrink:0,display:"flex",flexDirection:"column",gap:S.md,animation:`slideIn ${M.base}`}}>
-          <Card>
+          <div style={{display:"flex",gap:4}}>
+            {[["ficha","Ficha"],["historico","Histórico"]].map(([id,lbl])=>(
+              <Btn key={id} variant={cliTab===id?"primary":"ghost"} size="sm" style={{flex:1,justifyContent:"center"}} onClick={()=>setCliTab(id)}>{lbl}</Btn>
+            ))}
+          </div>
+          {cliTab==="ficha"&&(<Card>
             <div style={{display:"flex",gap:12,marginBottom:S.md}}>
               <Avatar nome={sel.nome} size={44} color={BE.prioridade(sel.score).color}/>
               <div>
@@ -2585,8 +2595,8 @@ const ClientesPage = () => {
                 toast(r&&r.success?(r.bloqueado?`${sel.nome} bloqueado`:`${sel.nome} desbloqueado`):(r&&r.error)||"GAS recusou a chave admin", r&&r.success?A.green:A.amber, r&&r.success?"check":"warning");
               }catch(e){ toast("Falha de rede ao atualizar bloqueio", A.red, "warning"); }
             }}>{sel.bloqueado?"Desbloquear cliente":"Bloquear cliente"}</Btn>
-          </Card>
-          <Card>
+          </Card>)}
+          {cliTab==="historico"&&(<Card>
             <SectionHead title="Histórico" sub={`${sel.historico.length} últimas visitas`}
               action={<Btn variant="secondary" size="sm" onClick={()=>{
                 exportCSV(`historico_${sel.nome.toLowerCase().replace(/\s+/g,"_")}.csv`,["Data","Serviço","Valor (R$)"],sel.historico.map(h=>[h.d,h.s,h.v]));
@@ -2601,7 +2611,7 @@ const ClientesPage = () => {
                 <span style={{color:A.green,fontSize:11,fontFamily:SHARED.fontMono}}>R$ {h.v}</span>
               </div>
             ))}
-          </Card>
+          </Card>)}
         </div>
       )}
       {importOpen && (
@@ -3015,7 +3025,7 @@ const CaixaPage = () => {
             {comissao.barbeiros.map((b,i)=>(
               <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 8px",borderBottom:i<comissao.barbeiros.length-1?`1px solid ${A.border}`:"none"}}>
                 <div style={{flex:1,color:A.textPri,fontSize:12,fontWeight:600}}>{b.barbeiro}</div>
-                <div style={{color:A.textSec,fontSize:10}}>{b.atendimentos} atend. · R$ {Number(b.faturado||0).toFixed(2)}</div>
+                <div style={{color:A.textSec,fontSize:10}}>{b.atendimentos} atend. · R$ {Number(b.faturado||0).toFixed(2)}{b.pct!=null?` · ${b.pct}%`:""}</div>
                 <span style={{color:A.green,fontSize:12,fontFamily:SHARED.fontMono,minWidth:80,textAlign:"right"}}>R$ {Number(b.comissao||0).toFixed(2)}</span>
               </div>
             ))}
@@ -3971,9 +3981,28 @@ const ConfigPage = () => {
     {id:"servicos",label:"Serviços & Preços"},
     {id:"barbeiros",label:"Barbeiros"},
     {id:"horarios",label:"Horários"},
+    {id:"bloqueios",label:"Bloqueios"},
     {id:"operacao",label:"Operação"},
     {id:"barbearia",label:"Barbearia"},
   ];
+  // v8: bloqueios de horário (folga/feriado)
+  const [bloqueios, setBloqueios] = useState([]);
+  const [blForm, setBlForm] = useState({ dataIni:"", dataFim:"", horaIni:"", horaFim:"", tipo:"folga", motivo:"" });
+  const carregarBloqueios = () => { if(!ENV.hasBackend) return; api.bloqueioListar(adminKeyStore.get()).then(r=>{ if(r&&r.bloqueios) setBloqueios(r.bloqueios); }).catch(()=>{}); };
+  useEffect(()=>{ if(tab==="bloqueios") carregarBloqueios(); }, [tab]);
+  const criarBloqueio = async () => {
+    if(!ENV.hasBackend){ toast("Conecte o backend p/ salvar bloqueios", A.amber, "warning"); return; }
+    if(!blForm.dataIni){ toast("Informe a data inicial", A.amber, "warning"); return; }
+    const r = await api.bloqueioCriar(adminKeyStore.get(), blForm);
+    if(r&&r.success){ toast("Bloqueio criado ✓", A.green, "check"); setBlForm({ dataIni:"", dataFim:"", horaIni:"", horaFim:"", tipo:"folga", motivo:"" }); carregarBloqueios(); }
+    else toast((r&&r.error)||"Não foi possível criar", A.amber, "warning");
+  };
+  const removerBloqueio = async (id) => {
+    if(typeof window!=="undefined" && !window.confirm("Remover este bloqueio?")) return;
+    const r = await api.bloqueioRemover(adminKeyStore.get(), id);
+    if(r&&r.success){ toast("Bloqueio removido", A.textSec, "check"); carregarBloqueios(); }
+    else toast((r&&r.error)||"Não foi possível remover", A.amber, "warning");
+  };
 
   // ── Serviços ──
   const [novo, setNovo] = useState({nome:"",preco:"",duracao:""});
@@ -4123,6 +4152,10 @@ const ConfigPage = () => {
                   </div>
                   {editId!==b.id&&(
                     <div style={{display:"flex",gap:S.xs,alignItems:"center"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:3}} title="Comissão deste barbeiro (vazio = usa o % global)">
+                        <input type="number" value={b.comissao ?? ""} onChange={e=>updBarbeiro(b.id,{comissao:e.target.value===""?undefined:(Number(e.target.value)||0)})} placeholder="%" style={{width:46,background:A.bg1,border:`1px solid ${A.border}`,borderRadius:R.md,padding:"4px 6px",color:A.textPri,fontSize:11,fontFamily:SHARED.fontMono,outline:"none",textAlign:"center"}}/>
+                        <span style={{color:A.textMuted,fontSize:10}}>% com.</span>
+                      </div>
                       <div onClick={()=>updBarbeiro(b.id,{ativo:b.ativo===false})} title={b.ativo!==false?"Desativar":"Ativar"} style={{
                         cursor:"pointer",width:38,height:22,borderRadius:R.pill,position:"relative",
                         background:b.ativo!==false?A.green:A.border,transition:`all ${M.base}`,flexShrink:0,
@@ -4138,6 +4171,40 @@ const ConfigPage = () => {
             </div>
           </Card>
         </div>
+      )}
+
+      {/* BLOQUEIOS (v8) */}
+      {tab==="bloqueios"&&(
+        <Card style={{animation:`fadeUp ${M.base}`}}>
+          <SectionHead title="Bloqueios de horário" sub="Folgas, feriados e reuniões — o cliente não consegue agendar nesses períodos"/>
+          {!ENV.hasBackend && <div style={{color:A.amber,fontSize:11,marginBottom:8}}>Conecte o backend (VITE_GAS_URL) para salvar bloqueios.</div>}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:S.sm,alignItems:"end"}}>
+            <Field label="De (data)"><TextInput type="date" value={blForm.dataIni} onChange={v=>setBlForm(f=>({...f,dataIni:v}))}/></Field>
+            <Field label="Até (data)"><TextInput type="date" value={blForm.dataFim} onChange={v=>setBlForm(f=>({...f,dataFim:v}))}/></Field>
+            <Field label="Hora início (opcional)"><TextInput type="time" value={blForm.horaIni} onChange={v=>setBlForm(f=>({...f,horaIni:v}))}/></Field>
+            <Field label="Hora fim (opcional)"><TextInput type="time" value={blForm.horaFim} onChange={v=>setBlForm(f=>({...f,horaFim:v}))}/></Field>
+            <Field label="Tipo">
+              <select value={blForm.tipo} onChange={e=>setBlForm(f=>({...f,tipo:e.target.value}))} style={{background:A.bg1,border:`1px solid ${A.border}`,borderRadius:R.md,padding:"8px 11px",color:A.textPri,fontSize:12,fontFamily:SHARED.fontAdmin,outline:"none",width:"100%"}}>
+                <option value="folga">Folga</option><option value="feriado">Feriado</option><option value="reuniao">Reunião</option><option value="reservado">Reservado</option>
+              </select>
+            </Field>
+            <div style={{gridColumn:"2 / 4"}}><Field label="Motivo (opcional)"><TextInput value={blForm.motivo} onChange={v=>setBlForm(f=>({...f,motivo:v}))} placeholder="Ex.: Feriado municipal"/></Field></div>
+            <Btn onClick={criarBloqueio} disabled={!ENV.hasBackend}>Bloquear</Btn>
+          </div>
+          <div style={{marginTop:S.md}}>
+            {bloqueios.length===0 && <div style={{color:A.textMuted,fontSize:11,padding:"12px 0",textAlign:"center"}}>Nenhum bloqueio. (Sem hora = dia inteiro.)</div>}
+            {bloqueios.map((bk,i)=>(
+              <div key={bk.id} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 4px",borderBottom:i<bloqueios.length-1?`1px solid ${A.border}`:"none"}}>
+                <Badge color={A.amber} dot>{bk.tipo}</Badge>
+                <div style={{flex:1}}>
+                  <div style={{color:A.textPri,fontSize:12,fontWeight:600}}>{String(bk.dataIni).split("-").reverse().join("/")}{bk.dataFim&&bk.dataFim!==bk.dataIni?` → ${String(bk.dataFim).split("-").reverse().join("/")}`:""}{bk.horaIni&&bk.horaFim?` · ${bk.horaIni}–${bk.horaFim}`:" · dia inteiro"}</div>
+                  {bk.motivo&&<div style={{color:A.textMuted,fontSize:10}}>{bk.motivo}</div>}
+                </div>
+                <Btn variant="danger" size="sm" onClick={()=>removerBloqueio(bk.id)}>Remover</Btn>
+              </div>
+            ))}
+          </div>
+        </Card>
       )}
 
       {/* HORÁRIOS */}
