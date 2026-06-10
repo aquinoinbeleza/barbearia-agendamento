@@ -2038,10 +2038,13 @@ function intervalosOcupadosCalendar_(data) {
   try {
     var ini = parseDataHora_(data, '00:00'); if (!ini) return [];
     var fim = new Date(ini.getTime() + 24*3600*1000);
-    return cal.getEvents(ini, fim).map(function(ev){
-      if (ev.isAllDayEvent()) return { ini:0, fim:24*60 }; // folga/feriado o dia todo
-      return { ini: minutosDoDia_(ev.getStartTime()), fim: minutosDoDia_(ev.getEndTime()) };
-    });
+    // IGNORA eventos "o dia todo" (feriados/aniversários/lembretes do Google pessoal
+    // NÃO devem zerar a agenda — isso fazia o portal mostrar "sem horários" todo dia).
+    // Folga/feriado de verdade agora é pela aba Bloqueios do painel. Só eventos COM
+    // hora marcada (atendimentos reais) bloqueiam o intervalo deles.
+    return cal.getEvents(ini, fim)
+      .filter(function(ev){ return !ev.isAllDayEvent(); })
+      .map(function(ev){ return { ini: minutosDoDia_(ev.getStartTime()), fim: minutosDoDia_(ev.getEndTime()) }; });
   } catch (e) { logErro_('intervalosOcupadosCalendar', e); return []; }
 }
 
@@ -2341,4 +2344,5 @@ function repararContagens() {
   detalhes.forEach(function (l) { Logger.log(l); });
   return { corrigidos: corrigidos, detalhes: detalhes };
 }
+
 
