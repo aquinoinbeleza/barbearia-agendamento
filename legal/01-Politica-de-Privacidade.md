@@ -1,8 +1,8 @@
 # Política de Privacidade — AQUINO Barbearia & Estética
 
-**Última atualização:** [DD/MM/AAAA]
-**Controlador dos dados:** [RAZÃO SOCIAL], CNPJ [00.000.000/0000-00], [endereço completo].
-**Encarregado de Dados (DPO):** [nome] — [email do encarregado] — [telefone].
+**Última atualização:** 09/06/2026
+**Controlador dos dados:** Vinícius Julio de Aquino, CNPJ 34.828.065/0001-41, R. Carlos Gomes, 256 — Ideal, Ipatinga/MG, CEP 35162-165.
+**Encarregado de Dados (DPO):** Vinícius Julio de Aquino — aquino.inbeleza@gmail.com — (31) 98698-8939.
 
 > Esta Política descreve como tratamos seus dados pessoais em conformidade com a
 > Lei nº 13.709/2018 (LGPD). Ao utilizar nossos canais de agendamento (site e
@@ -66,7 +66,7 @@ Você pode, a qualquer momento e sem custo, solicitar:
 - **revogação do consentimento** a qualquer momento;
 - **informação** sobre as consequências de não fornecer o consentimento.
 
-Para exercer seus direitos, contate o Encarregado (DPO) em **[email do encarregado]**.
+Para exercer seus direitos, contate o Encarregado (DPO) em **aquino.inbeleza@gmail.com**.
 
 ## 6. Segurança
 
@@ -88,8 +88,9 @@ a versão vigente. Mudanças relevantes serão comunicadas pelos nossos canais.
 
 ## 9. Contato
 
-Dúvidas sobre privacidade: **[email do encarregado]** · WhatsApp: [telefone].
+Dúvidas sobre privacidade: **aquino.inbeleza@gmail.com** · WhatsApp: (31) 98698-8939.
 
 ---
 *Documento orientativo gerado como base. **Recomenda-se revisão por profissional
 jurídico** antes da publicação. Preencha todos os campos entre colchetes.*
+
