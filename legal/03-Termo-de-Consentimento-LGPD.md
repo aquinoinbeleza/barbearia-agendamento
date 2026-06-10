@@ -1,7 +1,7 @@
 # Termo de Consentimento para Tratamento de Dados (LGPD)
 
-**AQUINO Barbearia & Estética** — [RAZÃO SOCIAL], CNPJ [00.000.000/0000-00].
-**Encarregado (DPO):** [nome] — [email do encarregado].
+**AQUINO Barbearia & Estética** — Vinícius Julio de Aquino, CNPJ 34.828.065/0001-41.
+**Encarregado (DPO):** Vinícius Julio de Aquino — aquino.inbeleza@gmail.com.
 
 Este Termo formaliza seu consentimento livre, informado e inequívoco para o
 tratamento dos seus dados pessoais, nos termos do Art. 7, I, da Lei nº 13.709/2018 (LGPD).
@@ -32,7 +32,7 @@ quando aplicável, **Mercado Pago**, conforme a Política de Privacidade.
 
 Você pode, a qualquer momento e sem custo: acessar, corrigir, portar, eliminar
 seus dados e **revogar este consentimento**, bastando contatar o Encarregado em
-**[email do encarregado]** ou responder **SAIR** no WhatsApp. A revogação não
+**aquino.inbeleza@gmail.com** ou responder **SAIR** no WhatsApp. A revogação não
 afeta a legalidade do tratamento realizado antes dela e pode limitar o uso de
 funções que dependam dos dados.
 
@@ -55,3 +55,4 @@ com o tratamento dos seus dados para as finalidades descritas.
 ---
 *Modelo orientativo. **Revisar com profissional jurídico** antes do uso. O aceite
 deve ser registrado (timestamp + identificador + versão) como prova de consentimento.*
+
