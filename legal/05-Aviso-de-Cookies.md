@@ -1,6 +1,6 @@
 # Aviso de Cookies — AQUINO Barbearia & Estética
 
-**Última atualização:** [DD/MM/AAAA]
+**Última atualização:** 09/06/2026
 
 ## 1. O que são cookies
 
@@ -29,7 +29,7 @@ A recusa de cookies opcionais não impede o agendamento.
 ## 4. Mais informações
 
 Veja a **Política de Privacidade** para detalhes sobre o tratamento de dados.
-Contato: [email do encarregado].
+Contato: aquino.inbeleza@gmail.com.
 
 ---
 
@@ -66,3 +66,4 @@ Contato: [email do encarregado].
 
 ---
 *Modelo orientativo. **Revisar com profissional jurídico** antes de publicar.*
+
