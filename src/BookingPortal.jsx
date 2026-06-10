@@ -1371,7 +1371,7 @@ function Portal() {
     <Shell onToggleTema={onToggleTema}>
       <div style={{padding:"54px 22px 0",textAlign:"center"}}>
         <img src="/logo-a.png" alt="AQUINO" width="78" height="78" style={{display:"block",margin:"0 auto 12px",filter: T.name==="dark" ? "drop-shadow(0 0 16px rgba(193,138,61,.55))" : "drop-shadow(0 6px 12px rgba(0,0,0,.20))"}}/>
-        <div style={{fontFamily:T.serif,fontSize:34,fontWeight:700,letterSpacing:"0.04em",color:T.ink}}>{BARBEARIA.nome}</div>
+        <div style={{fontFamily:"'Cinzel', "+T.serif,fontSize:33,fontWeight:700,letterSpacing:"0.06em",color:T.ink}}>{BARBEARIA.nome}</div>
         <div style={{color:T.brass,fontSize:13,fontWeight:600,letterSpacing:"0.16em",textTransform:"uppercase",marginTop:2}}>{BARBEARIA.sub}</div>
       </div>
       <div style={{padding:"32px 22px 0"}}>
