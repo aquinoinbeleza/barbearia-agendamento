@@ -1,7 +1,7 @@
 # Termos de Uso — AQUINO Barbearia & Estética
 
-**Última atualização:** [DD/MM/AAAA]
-**Prestador:** [RAZÃO SOCIAL], CNPJ [00.000.000/0000-00], [endereço].
+**Última atualização:** 09/06/2026
+**Prestador:** Vinícius Julio de Aquino, CNPJ 34.828.065/0001-41, R. Carlos Gomes, 256 — Ideal, Ipatinga/MG, CEP 35162-165.
 
 Ao agendar pelo nosso site ou WhatsApp, você concorda com estes Termos. Leia com atenção.
 
@@ -75,12 +75,13 @@ Podemos atualizar estes Termos. A versão vigente é a publicada com a data de
 ## 12. Foro e legislação
 
 Aplica-se a legislação brasileira. Fica eleito o foro da comarca de
-[cidade/UF], salvo competência legal diversa do consumidor.
+Ipatinga/MG, salvo competência legal diversa do consumidor.
 
 ## 13. Contato
 
-[email de contato] · WhatsApp: [telefone].
+aquino.inbeleza@gmail.com · WhatsApp: (31) 98698-8939.
 
 ---
 *Documento orientativo. **Revisar com profissional jurídico** antes de publicar.
 Preencha os campos entre colchetes.*
+
