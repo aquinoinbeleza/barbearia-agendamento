@@ -2342,4 +2342,3 @@ function repararContagens() {
   return { corrigidos: corrigidos, detalhes: detalhes };
 }
 
-
