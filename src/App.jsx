@@ -118,6 +118,9 @@ const api = {
   bloqueioListar: (key) => api._post({ action: "bloqueioListar", key }),
   bloqueioCriar: (key, bloqueio) => api._post({ action: "bloqueioCriar", key, ...bloqueio }),
   bloqueioRemover: (key, id) => api._post({ action: "bloqueioRemover", key, id }),
+  // v10: integração com o Google Agenda (admin) — para onde os agendamentos vão
+  calendarioGet:    (key) => api._post({ action: "calendarioGet", key }),
+  calendarioSalvar: (key, calendarId) => api._post({ action: "calendarioSalvar", key, calendarId }),
   // extensões de contrato (degradam p/ modo demo sem backend):
   reagendar:     (agendamentoId, novoHorario, tel) => api._post({ action: "reagendar", agendamentoId, novoHorario, tel }),
   enviarLembrete:(tel, clienteId) => api._post({ action: "enviarLembrete", tel, clienteId }),
@@ -3984,6 +3987,7 @@ const ConfigPage = () => {
     {id:"bloqueios",label:"Bloqueios"},
     {id:"operacao",label:"Operação"},
     {id:"barbearia",label:"Barbearia"},
+    {id:"agenda",label:"Google Agenda"},
   ];
   // v8: bloqueios de horário (folga/feriado)
   const [bloqueios, setBloqueios] = useState([]);
@@ -4002,6 +4006,24 @@ const ConfigPage = () => {
     const r = await api.bloqueioRemover(adminKeyStore.get(), id);
     if(r&&r.success){ toast("Bloqueio removido", A.textSec, "check"); carregarBloqueios(); }
     else toast((r&&r.error)||"Não foi possível remover", A.amber, "warning");
+  };
+
+  // v10: integração com o Google Agenda (onde os agendamentos são salvos)
+  const [cal, setCal] = useState({ calendarId:"", status:"", nome:"" });
+  const [calBusy, setCalBusy] = useState(false);
+  const carregarCalendario = () => { if(!ENV.hasBackend) return; api.calendarioGet(adminKeyStore.get()).then(r=>{ if(r&&r.success) setCal({ calendarId:r.calendarId||"", status:r.status||"", nome:r.nome||"" }); }).catch(()=>{}); };
+  useEffect(()=>{ if(tab==="agenda") carregarCalendario(); }, [tab]);
+  const salvarCalendario = async () => {
+    if(!ENV.hasBackend){ toast("Conecte o backend p/ vincular a agenda", A.amber, "warning"); return; }
+    setCalBusy(true);
+    try {
+      const r = await api.calendarioSalvar(adminKeyStore.get(), (cal.calendarId||"").trim());
+      if(r&&r.success){
+        setCal({ calendarId:r.calendarId||"", status:r.status||"", nome:r.nome||"" });
+        toast(r.calendarId ? `Agenda vinculada ✓${r.nome?` (${r.nome})`:""}` : "Agenda desvinculada — salvando só na planilha", A.green, "check");
+      } else toast((r&&(r.msg||r.error))||"Não foi possível salvar", A.amber, "warning");
+    } catch(e){ toast("Falha de rede ao salvar", A.red, "warning"); }
+    setCalBusy(false);
   };
 
   // ── Serviços ──
@@ -4320,6 +4342,41 @@ const ConfigPage = () => {
               } catch(e){ toast("Falha de rede ao salvar no GAS", A.red, "warning"); }
             }}><Ico n="check" size={11} color="#fff"/>Salvar</Btn>
           </div>
+        </Card>
+      )}
+      {tab==="agenda"&&(
+        <Card style={{animation:`fadeUp ${M.base}`}}>
+          <SectionHead title="Google Agenda da barbearia" sub="Para onde os agendamentos vão, além da planilha"/>
+          {!ENV.hasBackend ? (
+            <div style={{color:A.textSec,fontSize:13}}>Conecte o backend (GAS) no menu Sistema para usar esta opção.</div>
+          ) : (
+          <div style={{display:"flex",flexDirection:"column",gap:S.md}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+              <span style={{fontSize:12,color:A.textMuted}}>Status:</span>
+              {cal.status==="ok" ? (
+                <span style={{color:A.green,fontWeight:700,fontSize:13}}>● Conectado{cal.nome?` — ${cal.nome}`:""}</span>
+              ) : cal.status==="invalido" ? (
+                <span style={{color:A.red,fontWeight:700,fontSize:13}}>● ID inválido ou sem acesso</span>
+              ) : (
+                <span style={{color:A.textMuted,fontWeight:700,fontSize:13}}>● Desligado (salvando só na planilha)</span>
+              )}
+            </div>
+            <Field label="ID da agenda (Google Agenda → Configurações da agenda → Integrar agenda → ID da agenda)">
+              <TextInput value={cal.calendarId} onChange={v=>setCal(c=>({...c,calendarId:v}))} placeholder="xxxxxxxx@group.calendar.google.com"/>
+            </Field>
+            <div style={{background:A.bg2,border:`1px solid ${A.border}`,borderRadius:R.md,padding:S.md,fontSize:12,color:A.textSec,lineHeight:1.65}}>
+              <b style={{color:A.textPri}}>Como configurar:</b><br/>
+              1. No Google Agenda da barbearia, crie uma agenda só dela (ex.: "AQUINO Agenda").<br/>
+              2. Nas configurações dessa agenda → "Integrar agenda" → copie o <b>ID da agenda</b>.<br/>
+              3. Cole acima e clique em Salvar. A partir daí, <b>todo novo agendamento</b> aparece nela (os antigos não voltam sozinhos).
+            </div>
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+              {(cal.status==="ok"||cal.calendarId) && <Btn variant="secondary" size="sm" disabled={calBusy} onClick={()=>setCal(c=>({...c,calendarId:""}))}>Limpar campo</Btn>}
+              <Btn size="sm" disabled={calBusy} onClick={salvarCalendario}><Ico n="check" size={11} color="#fff"/>{calBusy?"Salvando…":"Salvar"}</Btn>
+            </div>
+            <div style={{fontSize:11,color:A.textMuted}}>Deixe o campo vazio e clique em Salvar para <b>desvincular</b> (voltar a salvar só na planilha).</div>
+          </div>
+          )}
         </Card>
       )}
     </div>
@@ -5150,4 +5207,5 @@ export default function App() {
     </ToastProvider>
   );
 }
+
 
