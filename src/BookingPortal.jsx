@@ -2120,3 +2120,4 @@ export default function BookingPortal() {
     </ThemeCtx.Provider>
   );
 }
+
